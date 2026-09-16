@@ -1,0 +1,61 @@
+# Armazenamento do laboratório — TESTE-DEPLOY
+
+## Objetivo
+
+Esta partição foi adicionada para disponibilizar capacidade local ao laboratório `TESTE-DEPLOY`, cujo filesystem raiz possui aproximadamente 15,8 GB e havia atingido uma condição crítica de uso.
+
+## Partição e montagem
+
+| Item | Valor |
+|---|---|
+| Disco físico | `/dev/nvme0n1` |
+| Partição | `/dev/nvme0n1p6` |
+| Filesystem | `ext4` |
+| Label | `teste-deploy-dat` |
+| UUID | `53c168bc-a66a-4de0-826b-6816b025e1d8` |
+| Tamanho aproximado | 30 GB |
+| Espaço disponível confirmado | Aproximadamente 28 GB |
+| Mountpoint | `/srv/teste-deploy-data` |
+
+## Persistência da montagem
+
+A montagem está configurada de forma persistente em `/etc/fstab` pela entrada abaixo:
+
+```fstab
+UUID=53c168bc-a66a-4de0-826b-6816b025e1d8 /srv/teste-deploy-data ext4 defaults 0 2
+```
+
+As validações informadas foram concluídas sem erro:
+
+- `sudo mount -a`;
+- `findmnt`, confirmando o mountpoint;
+- `df -hT`, confirmando o filesystem `ext4` e a capacidade.
+
+## Layout relevante
+
+`/dev/nvme0n1p6` é uma partição local do mesmo disco físico que contém o sistema. Ela fornece capacidade adicional montada separadamente e não amplia o filesystem raiz (`/`).
+
+## Finalidade planejada
+
+O mountpoint `/srv/teste-deploy-data` está disponível para dados do laboratório que demandem espaço além da raiz, incluindo dados fictícios e futuros componentes que venham a ser validados.
+
+Ainda não foi decidido quais serviços, diretórios ou dados serão alocados nessa partição. Nenhum dado existente foi movido como parte deste registro.
+
+## Limitações
+
+- A partição está no mesmo disco físico do sistema; ela resolve capacidade local, mas não protege contra falha física, perda ou indisponibilidade desse disco/servidor.
+- Ela não é, por si só, um destino seguro ou externo para backups.
+- A definição do destino real de backups, retenção e cópia em segunda máquina permanece pendente.
+- Serviços que gravam em caminhos padrão da raiz continuam dependendo da capacidade da raiz até que haja uma decisão futura e documentada sobre seus caminhos de dados.
+
+## Classificação preliminar
+
+| Item | Classificação | Tratamento futuro provável |
+|---|---|---|
+| `/dev/nvme0n1p6` | Infraestrutura local persistente | Preservar e recriar/documentar em reconstrução de infraestrutura. |
+| `/srv/teste-deploy-data` | Capacidade local do laboratório | Alocar somente após decisão explícita sobre cada serviço ou dado. |
+| Armazenamento externo de backups | Pendente | Definir separadamente; não é atendido pela nova partição. |
+
+## Situação atual
+
+Este documento registra somente a capacidade de armazenamento confirmada. Não foram definidos nem implementados movimentação de dados, backup ou restore.
