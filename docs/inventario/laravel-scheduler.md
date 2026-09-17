@@ -2,37 +2,63 @@
 
 ## Estado atual
 
-- `php artisan schedule:list` não encontrou tarefas agendadas.
-- Não há referências a `Schedule::` nem a `schedule:run` nos diretórios `routes`, `app`, `bootstrap` e `config` inspecionados.
-- Não foi executado `schedule:run`.
+- Existe uma tarefa Laravel Scheduler real, definida em `routes/console.php`.
+- A tarefa é executada a cada minuto.
+- `php artisan schedule:list` identificou a descrição `Append the scheduler disaster recovery marker`.
+- O Cron do host permanece sem um disparo para `php artisan schedule:run`; portanto, a tarefa ainda não é executada automaticamente pelo sistema.
 
-## Tarefas identificadas
-
-Nenhuma tarefa Laravel agendada foi identificada no momento do levantamento.
+## Tarefa identificada
 
 | Item | Estado | Observação |
 |---|---|---|
-| Tarefas Laravel agendadas | Ausentes | `schedule:list` retornou que nenhuma tarefa foi definida. |
-| Disparo por Cron | Não identificado | Não há job `schedule:run` nos agendamentos Cron visíveis. |
-| Worker de filas | Não identificado | Não há processo, unidade systemd ou configuração Supervisor relacionada. |
+| Implementação | Presente | `routes/console.php` usa `Schedule::call(...)`. |
+| Frequência | Validada | A cada minuto (`* * * * *`). |
+| Finalidade | Validada | Acrescentar um marcador de disaster recovery ao storage privado da aplicação. |
+| Arquivo gerado | Presente | `storage/app/private/scheduler-dr-test.log`. |
+| Marcador | Validado | Cada execução registra timestamp e `DR_TEST_SCHEDULER_001`. |
+| Dependências diretas | Não utilizadas | A tarefa usa `Storage::disk('local')->append(...)` e não depende diretamente de MySQL, Redis ou MongoDB. |
+| Disparo por Cron | Ausente | Nenhum job do host executa `schedule:run` no momento. |
 
-## Classificação preliminar
+## Validação realizada
+
+- `php artisan schedule:list` exibiu a tarefa `Append the scheduler disaster recovery marker` com frequência a cada minuto.
+- A execução manual com `CACHE_STORE=file php artisan schedule:run` foi concluída e acrescentou o marcador ao log.
+- `CACHE_STORE=file` foi usado somente no processo de validação; o `.env` não foi alterado.
+- Não foi aplicada configuração global ao Scheduler: não há `Schedule::$pausable = false` nem `Schedule::useCache('file')`.
+
+### Teste focal
+
+O teste `tests/Feature/SchedulerDrTest.php` valida a tarefa de forma isolada.
+
+- Resultado validado: 1 teste aprovado, com 2 assertions.
+- O teste define `cache.default` como `file` apenas no processo de teste.
+- O teste confirma a criação do arquivo e o conteúdo do marcador no disco `local` simulado.
+
+## Persistência e Git
+
+O arquivo `storage/app/private/scheduler-dr-test.log` existe, contém linhas com `DR_TEST_SCHEDULER_001` e é ignorado pela regra `*` em `storage/app/private/.gitignore`.
 
 | Item | Tipo | Tratamento futuro provável |
 |---|---|---|
-| Definições do Scheduler | Código/configuração | Ausentes; reproduzir por versionamento se forem adicionadas. |
-| Disparo `schedule:run` por Cron | Tarefa reproduzível/documentável | Ausente; criar somente sob decisão futura explícita. |
-| Jobs de fila | Dado operacional potencial | Não há código ou worker identificado; fila efetiva usa banco de dados. |
+| `routes/console.php` | Código/configuração versionável | Reconstruível por Git quando versionado. |
+| `tests/Feature/SchedulerDrTest.php` | Teste versionável | Reconstruível por Git quando versionado. |
+| `storage/app/private/scheduler-dr-test.log` | Dado operacional/persistente | Preservar e considerar na futura estratégia de backup conforme o papel do Scheduler no cenário. |
+| Cache de filesystem usado na validação | Temporário | Usado somente pelo comando ou teste; não altera a configuração permanente da aplicação. |
+| Disparo `schedule:run` por Cron | Tarefa reproduzível/documentável | Ausente; avaliar somente em etapa futura. |
+
+## Classificação para disaster recovery
+
+- A definição da tarefa e seu teste são código reconstruível por versionamento, desde que incluídos no repositório.
+- O log gerado no storage privado é dado operacional persistente do laboratório e não é recuperável por clone do Git.
+- Ainda não houve backup nem restore do log ou da definição em máquina limpa.
+- A automação pelo Cron do host, a restauração em máquina limpa e a estratégia de backup continuam pendentes.
 
 ## Pendências
 
-- Revalidar este documento quando forem adicionadas tarefas em `routes/console.php` ou outras definições de Scheduler.
-- Revalidar Cron se um disparo de `schedule:run` for configurado no futuro.
-- Inventariar as tabelas de fila no MySQL caso o uso de jobs seja introduzido.
+- Decidir futuramente se o Cron do host deve disparar `php artisan schedule:run` neste laboratório.
+- Validar backup e restore do log do Scheduler em máquina limpa ou ambiente equivalente.
 - Definir posteriormente qualquer estratégia de backup ou recuperação; nenhuma foi definida neste documento.
 
 ## Situação atual
 
-Este documento representa somente o mapeamento do Laravel Scheduler no ambiente `TESTE-DEPLOY`.
-
-Nenhuma tarefa agendada, worker ou fila foi executado, iniciado, alterado ou removido durante este levantamento.
+Este documento registra a tarefa Scheduler validada no ambiente `TESTE-DEPLOY`. A execução manual e o teste focal foram validados, mas o disparo automático por Cron e a recuperação em máquina limpa não foram implementados nem testados.

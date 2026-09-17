@@ -12,10 +12,29 @@
 
 | Localização | Conteúdo identificado | Classificação |
 |---|---|---|
-| `storage/app/private` | Somente `.gitignore` | Área potencial para dado persistente; sem arquivos de aplicação no levantamento. |
+| `storage/app/private` | `.gitignore`, `DR_TEST_STORAGE_001.txt` (155 bytes) e `scheduler-dr-test.log` | Dados persistentes privados da aplicação; não versionados. |
 | `storage/app/public` | Somente `.gitignore` | Área potencial para uploads públicos; sem arquivos de aplicação no levantamento. |
-| `storage/app` | Somente arquivos `.gitignore` nas áreas inspecionadas | Não há upload, documento ou arquivo público persistente identificado. |
+| `storage/app` | Marcador privado de disaster recovery; não há upload ou arquivo público persistente identificado | Possui dado persistente privado representativo; fluxo público ainda não validado. |
 | `public/storage` | Ausente | Nenhum conteúdo público é servido via symlink neste momento. |
+
+### Marcador privado de disaster recovery
+
+O arquivo `storage/app/private/DR_TEST_STORAGE_001.txt` foi criado e validado como dado persistente fictício da aplicação.
+
+- Finalidade: marcador para teste futuro de backup e restore do storage Laravel.
+- Conteúdo: marcador de teste de disaster recovery confirmado; não contém dado sensível.
+- Git: não aparece em `git status` porque `storage/app/private/.gitignore` possui a regra `*`.
+
+O conteúdo de `storage/app/private` deve ser tratado como dado persistente da aplicação. Ele não pode ser reconstruído somente por clone do repositório Git.
+
+### Log de validação do Scheduler
+
+O arquivo `storage/app/private/scheduler-dr-test.log` é gerado pela tarefa Laravel Scheduler validada em `routes/console.php`.
+
+- Finalidade: registrar execuções do marcador `DR_TEST_SCHEDULER_001` com timestamp.
+- Classificação: dado operacional/persistente do laboratório.
+- Git: é ignorado pela mesma regra `*` em `storage/app/private/.gitignore`.
+- Situação: a criação e a escrita foram validadas; backup, restore e validação em máquina limpa ainda não foram realizados.
 
 ## Dados temporários e logs
 
@@ -31,7 +50,7 @@
 
 | Item | Tipo | Tratamento futuro provável |
 |---|---|---|
-| `storage/app/private` | Dado persistente potencial | Preservar quando houver arquivos de aplicação; está vazio no levantamento. |
+| `storage/app/private` | Dado persistente | Preservar; contém o marcador `DR_TEST_STORAGE_001.txt` e o log `scheduler-dr-test.log`, ambos ignorados pelo Git. |
 | `storage/app/public` | Dado persistente potencial | Preservar quando houver uploads públicos; está vazio no levantamento. |
 | `storage/framework/cache` | Cache/temporário | Reconstruível. |
 | `storage/framework/views` | Cache/temporário | Reconstruível. |
@@ -41,12 +60,13 @@
 
 ## Pendências
 
-- Reinspecionar `storage/app/private` e `storage/app/public` quando a aplicação passar a receber arquivos de usuários.
+- Realizar futuramente backup e restore do marcador `DR_TEST_STORAGE_001.txt`; isso ainda não foi testado.
+- Realizar futuramente backup e restore do log `scheduler-dr-test.log`; isso ainda não foi testado.
+- Validar futuramente a recuperação do storage privado em máquina limpa ou ambiente equivalente.
+- Reinspecionar `storage/app/public` quando a aplicação passar a receber arquivos de usuários.
 - Confirmar, em levantamento do MySQL, as sessões, cache e possíveis filas que não ficam em filesystem.
 - Definir posteriormente qualquer estratégia de backup ou recuperação; nenhuma foi definida neste documento.
 
 ## Situação atual
 
-Este documento representa somente o mapeamento do storage Laravel no ambiente `TESTE-DEPLOY`.
-
-Nenhum arquivo de storage, log, cache ou link simbólico foi criado, alterado ou removido durante este levantamento.
+Este documento preserva o inventário inicial e registra o marcador privado de disaster recovery criado posteriormente. O arquivo existe e é persistente, mas seu backup, restore e validação em máquina limpa continuam pendentes.
