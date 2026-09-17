@@ -6,20 +6,20 @@ Esta análise compara exclusivamente o inventário validado do ambiente `TESTE-D
 
 ## Estado geral
 
-O ambiente possui a base Laravel/PHP, MySQL, Docker, Nginx, UFW, Fail2Ban, Cron e Portainer. Contudo, ainda não tem os componentes e dados necessários para exercitar uma recuperação completa e representativa: MongoDB e Redis estão ausentes; Git não é funcional; não há dados persistentes de uploads; Scheduler e filas não têm trabalho real; HTTPS não está configurado; e não há local de armazenamento de backups definido.
+O ambiente possui a base Laravel/PHP, MySQL, MongoDB, Docker, Nginx, UFW, Fail2Ban, Cron, Portainer e Git funcional. Contudo, ainda não tem todos os componentes e dados necessários para exercitar uma recuperação completa e representativa: Redis está ausente; não há dados persistentes de uploads; Scheduler e filas não têm trabalho real; HTTPS não está configurado; e não há local de armazenamento de backups definido.
 
-A raiz continua com aproximadamente 15,8 GB e foi identificada anteriormente como um limite crítico. Para disponibilizar capacidade ao laboratório, foi criada uma partição ext4 persistente de aproximadamente 30 GB em `/srv/teste-deploy-data`, com cerca de 28 GB livres. Isso resolve a lacuna de capacidade planejada para dados do laboratório, mas não amplia a raiz nem cria armazenamento externo para backups.
+A raiz continua com aproximadamente 15,8 GB e foi identificada anteriormente como um limite crítico. Para disponibilizar capacidade ao laboratório, foi criada uma partição ext4 persistente de aproximadamente 30 GB em `/srv/teste-deploy-data`, com cerca de 28 GB livres. Docker e containerd foram migrados e validados após reboot nessa partição, liberando a raiz para os próximos componentes do laboratório. A partição não amplia a raiz nem cria armazenamento externo para backups.
 
 ## Matriz de gaps
 
 | Componente | Estado atual | Estado desejado | Gap | Ação futura sugerida | Prioridade |
 |---|---|---|---|---|---|
-| Host/Sistema Operacional | Linux Mint 22.3, base Ubuntu; raiz com ~15,8 GB; partição local adicional com ~28 GB livres em `/srv/teste-deploy-data` | Linux equivalente com capacidade suficiente para o laboratório | Capacidade local planejada resolvida; a raiz não foi ampliada e serviços em caminhos padrão ainda podem depender dela | Decidir futuramente quais dados e serviços usarão a nova partição, sem alterar a montagem atual | Resolvida para capacidade do laboratório |
+| Host/Sistema Operacional | Linux Mint 22.3, base Ubuntu; raiz com ~15,8 GB; partição local adicional com ~28 GB livres em `/srv/teste-deploy-data` | Linux equivalente com capacidade suficiente para o laboratório | Capacidade local planejada resolvida; Docker/containerd migrados e validados após reboot; a raiz não foi ampliada | Monitorar a capacidade e decidir futuramente quais novos serviços usarão a partição | Resolvida para capacidade do laboratório |
 | Laravel/PHP | Laravel 13.27.0, PHP 8.3.6; ambiente `local` e debug habilitado | Aplicação funcional com configuração de laboratório explícita | Ambiente e debug não foram validados como representação do cenário-alvo | Definir futuramente os parâmetros de laboratório a reproduzir | Média |
-| Git/versionamento | `.git` é diretório vazio; não há repositório, branch ou remote | Repositório funcional com código e documentação versionáveis | Código não possui histórico nem origem verificável | Decidir a origem do código e criar/versionar somente após validação | Alta |
-| Docker e Docker Compose | Docker e Compose instalados; nenhum projeto Compose associado aos containers | Infraestrutura reproduzível por definição declarativa | Portainer foi criado fora de Compose; não há definição de infraestrutura versionável | Decidir formato de definição da infraestrutura e versões fixas | Alta |
+| Git/versionamento | Repositório funcional em `main`; commit `77bdce8`; `origin` no GitHub; `main` rastreia `origin/main`; working tree limpo | Código e documentação versionáveis em repositório funcional | Resolvido para o laboratório; Git/Bonobo corporativo ainda não foi validado | Validar futuramente o fluxo Git/Bonobo conforme a infraestrutura da empresa | Resolvida para o laboratório |
+| Docker e Docker Compose | Docker e containerd ativos após reboot; dados persistentes em `/srv/teste-deploy-data`; nenhum projeto Compose associado aos containers | Infraestrutura reproduzível por definição declarativa | Portainer foi criado fora de Compose; não há definição de infraestrutura versionável; origens antigas estão retidas para rollback | Decidir formato de definição da infraestrutura, versões fixas e o momento seguro para encerrar o rollback | Alta |
 | MySQL | MySQL ativo, banco `teste_deploy`, tabelas Laravel presentes | Banco reproduzível com dados de laboratório representativos | Dados de negócio mínimos; medição física do datadir ainda pendente | Criar futuramente dados fictícios e medir armazenamento antes do teste | Alta |
-| MongoDB | Ausente | Presente caso faça parte do cenário-alvo | Componente inexistente | Decidir uso no laboratório e instalar/configurar somente em etapa posterior | Alta |
+| MongoDB | Instalado via Docker Compose; MongoDB 8.0.32; volume `mongodb_data` no data-root Docker; persistência após restart validada | Banco documental persistente e recuperável no laboratório | Backup/restore não implementados; tuning de produção e restore em máquina limpa não validados | Definir futuramente backup/restore, validar recuperação limpa e avaliar tuning | Alta |
 | Redis | Ausente; Laravel usa `database` para cache, sessão e fila | Presente caso o cenário-alvo exija Redis | Componente inexistente e não exercitado pela aplicação | Decidir se Redis deve ser introduzido e quais drivers Laravel usariam o serviço | Alta |
 | Nginx | Nginx HTTP ativo na porta 80; rate limits customizados | Proxy web com configuração validada para o laboratório | HTTPS ausente; blocos PHP e aplicação de rate limits ainda pendentes de validação | Decidir se HTTPS integra o laboratório e validar configurações existentes | Média |
 | UFW | Ativo; entrada `deny`, libera SSH e HTTP em IPv4/IPv6 | Regras de segurança reproduzíveis e coerentes com serviços | Arquivos efetivos e regra explícita de saída SSH ainda requerem revisão | Validar as regras persistidas e a necessidade da exceção de saída | Média |
@@ -39,27 +39,28 @@ A raiz continua com aproximadamente 15,8 GB e foi identificada anteriormente com
 
 | Natureza | Elementos atuais | Implicação para o laboratório |
 |---|---|---|
-| Código/versionamento | Código Laravel, configurações sem secrets, migrations, lockfiles e documentação existem; Git não é funcional | O código é potencialmente versionável, mas falta o mecanismo de versionamento. |
+| Código/versionamento | Código Laravel, configurações sem secrets, migrations, lockfiles e documentação estão no repositório Git funcional do laboratório | Git protege código e configuração versionável, mas não substitui backup de dados persistentes ou secrets. |
 | Configuração | Nginx, UFW, Fail2Ban, Cron, MySQL, Laravel e Portainer possuem configurações identificadas | Configurações precisam ser comparadas, reproduzidas e validadas antes de uma reconstrução. |
-| Infraestrutura | Host, Docker, Compose, MySQL, Nginx, UFW, Fail2Ban, Cron e Portainer estão presentes | MongoDB, Redis e uma definição declarativa/reproduzível de infraestrutura continuam ausentes. |
-| Dado persistente | MySQL `teste_deploy`, volume `portainer_data`, futuros arquivos em `storage/app` | Há dados mínimos no banco e Portainer, mas faltam dados fictícios de aplicação e uploads. |
+| Infraestrutura | Host, Docker, Compose, MySQL, MongoDB, Nginx, UFW, Fail2Ban, Cron e Portainer estão presentes | Redis e uma definição declarativa/reproduzível mais ampla de infraestrutura continuam pendentes. |
+| Dado persistente | MySQL `teste_deploy`, volumes `portainer_data` e `mongodb_data`, futuros arquivos em `storage/app` | Há persistência validada no MongoDB, mas faltam backup/restore do banco, dados fictícios de aplicação e uploads. |
 | Secret | `.env`, `APP_KEY`, credenciais de banco/serviços e `/etc/mysql/debian.cnf` | Devem permanecer fora do Git e requerem tratamento protegido para reconstrução. |
 | Temporário/reconstruível | `vendor`, `node_modules`, caches, views compiladas, logs, cache/locks de banco | Não devem orientar o teste de persistência; podem ser recriados após reconstrução. |
 | Componente de segurança | UFW, Fail2Ban, SSH e Nginx | Estão presentes, mas HTTPS e algumas validações de regras/filtros ainda são gaps. |
-| Ferramenta operacional | Docker, Compose, Portainer, Cron e Git | Docker/Portainer/Cron existem; Git é inválido e Compose não representa a infraestrutura atual. |
+| Ferramenta operacional | Docker, Compose, Portainer, Cron e Git | Docker/Portainer/Cron existem; Git está funcional no laboratório; Compose ainda não representa a infraestrutura atual. |
 
 ## Prioridades para a próxima fase
 
 1. **Crítica:** decidir o destino e a capacidade do armazenamento de backups, sem implementá-lo ainda.
 2. **Crítica:** definir o destino e os critérios para uma futura reconstrução em segunda máquina.
-3. **Alta:** estabelecer versionamento Git funcional após esclarecer a origem do diretório `.git` vazio.
-4. **Alta:** decidir e introduzir posteriormente MongoDB e Redis se ambos integrarem o cenário-alvo.
-5. **Alta:** decidir quais dados e serviços de laboratório usarão `/srv/teste-deploy-data`; a nova capacidade não muda automaticamente os caminhos padrão da raiz.
+3. **Alta:** decidir e introduzir posteriormente Redis se integrar o cenário-alvo.
+4. **Alta:** definir backup/restore do MongoDB, validar recuperação em máquina limpa e avaliar o tuning pendente para produção.
+5. **Alta:** decidir quais dados e serviços de laboratório usarão `/srv/teste-deploy-data`, além de Docker/containerd, e quando as origens antigas poderão deixar de ser necessárias para rollback.
 6. **Alta:** criar dados fictícios representativos em MySQL, `storage/app`, sessões, cache e filas para validar recuperação.
 7. **Alta:** substituir a dependência de tag `latest` do Portainer por versão ou digest definido em decisão futura.
 8. **Alta:** revisar a necessidade da permissão `664` nos arquivos `.env` e o tratamento seguro de secrets.
 9. **Média:** decidir se HTTPS, Scheduler e jobs de Cron integram o laboratório.
 10. **Média:** concluir as validações pendentes de Nginx, UFW e Fail2Ban antes de declarar a postura de segurança reproduzível.
+11. **Média:** validar futuramente o fluxo Git/Bonobo adotado pela infraestrutura corporativa.
 
 ## Itens não necessários no estado atual
 

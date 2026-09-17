@@ -1,0 +1,15 @@
+name: teste-deploy-mongodb
+
+services:
+  mongodb:
+    image: mongo:8.0.32-noble
+    container_name: teste-deploy-mongodb
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data:
+    name: mongodb_data

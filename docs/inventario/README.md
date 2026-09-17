@@ -20,7 +20,7 @@ Esta pasta reúne o inventário técnico do ambiente `TESTE-DEPLOY`. Cada docume
 | Laravel Scheduler | Mapeado | [laravel-scheduler.md](laravel-scheduler.md) |
 | PHP/PHP-FPM | Pendente | - |
 | MySQL | Mapeado | [mysql.md](mysql.md) |
-| MongoDB | Pendente | - |
+| MongoDB | Mapeado | [mongodb.md](mongodb.md) |
 | Redis | Pendente | - |
 | Git/versionamento | Mapeado | [git.md](git.md) |
 | Secrets/configuração de produção | Mapeado | [secrets.md](secrets.md) |

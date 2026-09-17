@@ -30,16 +30,36 @@ As validações informadas foram concluídas sem erro:
 - `sudo mount -a`;
 - `findmnt`, confirmando o mountpoint;
 - `df -hT`, confirmando o filesystem `ext4` e a capacidade.
+- reboot de validação, confirmando montagem automática via `/etc/fstab`.
 
 ## Layout relevante
 
 `/dev/nvme0n1p6` é uma partição local do mesmo disco físico que contém o sistema. Ela fornece capacidade adicional montada separadamente e não amplia o filesystem raiz (`/`).
 
-## Finalidade planejada
+## Uso validado
 
-O mountpoint `/srv/teste-deploy-data` está disponível para dados do laboratório que demandem espaço além da raiz, incluindo dados fictícios e futuros componentes que venham a ser validados.
+O mountpoint passou a hospedar o armazenamento persistente de Docker e containerd:
 
-Ainda não foi decidido quais serviços, diretórios ou dados serão alocados nessa partição. Nenhum dado existente foi movido como parte deste registro.
+| Componente | Localização atual |
+|---|---|
+| Docker data-root | `/srv/teste-deploy-data/docker` |
+| Containerd root persistente | `/srv/teste-deploy-data/containerd` |
+| Containerd state temporário | `/run/containerd` |
+| Volume `portainer_data` | `/srv/teste-deploy-data/docker/volumes/portainer_data/_data` |
+| Volume `mongodb_data` | Sob `/srv/teste-deploy-data/docker/volumes/` |
+
+Após reboot, `containerd` e `docker` iniciaram ativos, o container Portainer subiu automaticamente e containers, imagens e volumes existentes permaneceram visíveis.
+
+MongoDB passou a usar o volume persistente `mongodb_data` sob o data-root Docker. O uso da partição para Redis, dados fictícios adicionais e outros serviços do laboratório continua pendente de decisão específica.
+
+## Origem e rollback temporário
+
+As localizações anteriores foram:
+
+- Docker: `/var/lib/docker`;
+- containerd: `/var/lib/containerd`.
+
+Essas origens foram mantidas temporariamente como opção de rollback e ainda não devem ser removidas.
 
 ## Limitações
 
@@ -53,9 +73,13 @@ Ainda não foi decidido quais serviços, diretórios ou dados serão alocados ne
 | Item | Classificação | Tratamento futuro provável |
 |---|---|---|
 | `/dev/nvme0n1p6` | Infraestrutura local persistente | Preservar e recriar/documentar em reconstrução de infraestrutura. |
-| `/srv/teste-deploy-data` | Capacidade local do laboratório | Alocar somente após decisão explícita sobre cada serviço ou dado. |
+| `/srv/teste-deploy-data` | Capacidade local do laboratório | Hospeda Docker/containerd; alocar novos serviços somente após decisão explícita. |
+| `/srv/teste-deploy-data/docker` | Dado operacional persistente | Preservar; contém o data-root atual do Docker. |
+| `/srv/teste-deploy-data/containerd` | Dado operacional persistente | Preservar; contém o root persistente atual do containerd. |
+| `mongodb_data` | Dado persistente do MongoDB | Preservar; backup e restore permanecem pendentes. |
+| `/var/lib/docker` e `/var/lib/containerd` | Rollback temporário | Não remover até decisão explícita posterior. |
 | Armazenamento externo de backups | Pendente | Definir separadamente; não é atendido pela nova partição. |
 
 ## Situação atual
 
-Este documento registra somente a capacidade de armazenamento confirmada. Não foram definidos nem implementados movimentação de dados, backup ou restore.
+Este documento registra a capacidade de armazenamento e a migração validada de Docker/containerd. A definição do destino externo de backups e a estratégia de restore continuam pendentes.
