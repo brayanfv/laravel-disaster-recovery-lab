@@ -21,7 +21,7 @@
 
 | Tipo | Origem | Destino | Permissão | Finalidade aparente |
 |---|---|---|---|---|
-| Volume nomeado | `/var/lib/docker/volumes/portainer_data/_data` | `/data` | Leitura e escrita | Dados persistentes do Portainer |
+| Volume nomeado | `/srv/teste-deploy-data/docker/volumes/portainer_data/_data` | `/data` | Leitura e escrita | Dados persistentes do Portainer |
 | Bind mount | `/var/run/docker.sock` | `/var/run/docker.sock` | Leitura e escrita | Administração do daemon Docker local |
 
 O volume `portainer_data` usa driver `local`, escopo `local`, não possui labels nem opções declaradas e foi criado em 28/08/2026.

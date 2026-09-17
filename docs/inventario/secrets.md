@@ -58,8 +58,8 @@ Não foram abertas chaves privadas. O virtual host da aplicação permanece docu
 | Item | Localização | Categoria | Estado identificado |
 |---|---|---|---|
 | Variáveis do container `portainer` | Metadados do container Docker | Configuração | Apenas `PATH` identificada; nenhuma variável de ambiente sensível foi encontrada. |
-| `portainer_data` | `/var/lib/docker/volumes/portainer_data` | Dado persistente potencialmente sensível | Diretório `root:root`, permissão `701`. |
-| Dados do volume | `/var/lib/docker/volumes/portainer_data/_data` | Dado persistente potencialmente sensível | Diretório `root:root`, permissão `755`; conteúdo não lido. |
+| `portainer_data` | `/srv/teste-deploy-data/docker/volumes/portainer_data` | Dado persistente potencialmente sensível | Diretório `root:root`, permissão `701`. |
+| Dados do volume | `/srv/teste-deploy-data/docker/volumes/portainer_data/_data` | Dado persistente potencialmente sensível | Diretório `root:root`, permissão `755`; conteúdo não lido. |
 | Socket Docker | `/var/run/docker.sock` | Acesso privilegiado à infraestrutura | Bind mount de leitura e escrita no container Portainer; não é secret de backup. |
 
 ## SSH e Git/GitHub
