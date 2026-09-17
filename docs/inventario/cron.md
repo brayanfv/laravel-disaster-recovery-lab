@@ -6,7 +6,7 @@
 - Pacote: `cron` 3.0pl1-184ubuntu2
 - Serviço: ativo e em execução
 - Unidade systemd: `/usr/lib/systemd/system/cron.service`
-- Crontab do usuário `lucas-cooperja`: inexistente
+- Crontab do usuário `lucas-cooperja`: presente; contém o disparo do Laravel Scheduler a cada minuto
 - Crontab do `root`: inexistente
 
 ## Agendamentos do sistema
@@ -36,7 +36,18 @@ As tarefas marcadas como fallback verificam a presença de `/run/systemd/system`
 
 ## Aplicação, backup e manutenção
 
-- Laravel Scheduler: não identificado. Não há `Schedule::` ou `schedule:run` no projeto, nem job Laravel nos agendamentos visíveis.
+- Laravel Scheduler: o crontab de `lucas-cooperja` executa a cada minuto a linha abaixo:
+
+  ```cron
+  * * * * * cd /home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy && CACHE_STORE=file /usr/bin/php artisan schedule:run >> /dev/null 2>&1
+  ```
+
+  - Usuário de execução: `lucas-cooperja` (não `root`).
+  - PHP: `/usr/bin/php` (PHP CLI 8.3.6).
+  - Projeto: `/home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy`.
+  - `CACHE_STORE=file` vale somente para esse processo; `.env` e a configuração global Laravel não foram alterados.
+  - `stdout` e `stderr` são direcionados para `/dev/null`.
+  - A integração Cron → Laravel Scheduler → tarefa agendada foi validada: a contagem do marcador `DR_TEST_SCHEDULER_001` em `storage/app/private/scheduler-dr-test.log` cresceu de 3 para 7 ocorrências.
 - Backup: não foi identificado job de backup.
 - Docker, bancos e Nginx: não há job específico identificado em crontabs ou em `/etc/cron.d`.
 - Logs: `logrotate` está presente como tarefa diária fornecida por pacote.
@@ -51,16 +62,15 @@ As tarefas marcadas como fallback verificam a presença de `/run/systemd/system`
 | Arquivos pertencentes a pacotes em `/etc/cron.d` e diretórios `cron.*` | Tarefas reconstruíveis | Restauradas pela reinstalação dos respectivos pacotes. |
 | `/etc/cron.d/sendmail` | Configuração personalizada | Validar origem e necessidade antes de reproduzir. |
 | Job `cron-msp` | Tarefa reproduzível/documentável | Reproduzir somente se o Sendmail e a fila SMTP fizerem parte do ambiente-alvo. |
-| Crontabs de `lucas-cooperja` e `root` | Configuração de usuário | Ausentes no momento do levantamento. |
+| Crontab de `lucas-cooperja` | Configuração personalizada de usuário | Dispara o Laravel Scheduler a cada minuto com cache de filesystem temporário. |
+| Crontab de `root` | Configuração de usuário | Ausente no momento do levantamento. |
 
 ## Pendências
 
 - Confirmar se `/etc/cron.d/sendmail` foi criado por instalação local, configuração manual ou mecanismo externo ao banco de pacotes.
 - Verificar, em futuro levantamento separado, timers systemd que possam substituir tarefas de Cron no host.
-- Definir posteriormente qualquer estratégia de versionamento, backup ou recuperação; nenhuma foi definida neste documento.
+- Definir posteriormente qualquer estratégia de versionamento, backup ou recuperação; nenhuma foi definida neste documento e não há job de backup instalado.
 
 ## Situação atual
 
-Este documento representa somente o mapeamento do Cron no ambiente `TESTE-DEPLOY`.
-
-Nenhum agendamento, arquivo, serviço ou job foi criado, alterado, executado, reiniciado ou removido durante este levantamento.
+Este documento registra o inventário inicial e a integração posterior, validada, entre o Cron do usuário `lucas-cooperja` e o Laravel Scheduler. Não há job de backup e nenhum backup ou restore foi implementado neste documento.
