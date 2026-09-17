@@ -21,7 +21,7 @@ Esta pasta reúne o inventário técnico do ambiente `TESTE-DEPLOY`. Cada docume
 | PHP/PHP-FPM | Pendente | - |
 | MySQL | Mapeado | [mysql.md](mysql.md) |
 | MongoDB | Mapeado | [mongodb.md](mongodb.md) |
-| Redis | Pendente | - |
+| Redis | Mapeado | [redis.md](redis.md) |
 | Git/versionamento | Mapeado | [git.md](git.md) |
 | Secrets/configuração de produção | Mapeado | [secrets.md](secrets.md) |
 | Armazenamento do laboratório | Mapeado | [armazenamento.md](armazenamento.md) |

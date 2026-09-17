@@ -6,10 +6,10 @@
 - Docker Engine: 29.1.3
 - Docker Compose: 2.40.3
 - Serviço Docker: ativo
-- Containers: 2 em execução e 3 parados
-- Imagens locais: 4
-- Volumes nomeados: 2
-- Networks: 3 padrão identificadas no levantamento inicial; a stack MongoDB adicionou uma network Compose cujo detalhamento permanece pendente
+- Containers: 3 em execução e 3 parados
+- Imagens locais: 5
+- Volumes nomeados: 3
+- Networks: 3 padrão identificadas no levantamento inicial; MongoDB e Redis usam a mesma network Compose
 
 ## Armazenamento Docker e containerd
 
@@ -34,6 +34,7 @@ As origens `/var/lib/docker` e `/var/lib/containerd` foram mantidas temporariame
 | `priceless_rubin` | `ubuntu:latest` | Parado há cerca de 2 semanas | `no` | Ausentes | Nenhum | Aparentemente teste descartável |
 | `trusting_margulis` | `hello-world:latest` | Parado, saída 0 há cerca de 2 semanas | `no` | Ausentes | Nenhum | Teste descartável |
 | `teste-deploy-mongodb` | `mongo:8.0.32-noble` | Em execução; persistência validada após restart | `unless-stopped` | Associadas à stack Compose | Volume `mongodb_data` em `/data/db` | Serviço persistente do laboratório |
+| `teste-deploy-redis` | `redis:7.4.11-alpine` | Em execução; persistência AOF validada após restart | `unless-stopped` | Associadas à stack Compose | Volume `redis_data` em `/data` | Serviço operacional persistente do laboratório |
 
 Os containers anteriores ao MongoDB não têm labels `com.docker.compose.project` nem `com.docker.compose.service`. O `teste-deploy-mongodb` é associado à stack definida em `infra/compose.yml`.
 
@@ -45,6 +46,7 @@ Os containers anteriores ao MongoDB não têm labels `com.docker.compose.project
 | `ubuntu` | `latest` | `2260313b31c8` | 160 MB | Imagem reconstruível/downloadable; usada apenas por container parado de teste |
 | `hello-world` | `latest` | `5dd0d3e6e255` | 25,9 kB | Imagem reconstruível/downloadable; usada apenas por testes |
 | `mongo` | `8.0.32-noble` | Não registrado neste inventário | Não registrado neste inventário | Imagem fixa do MongoDB do laboratório |
+| `redis` | `7.4.11-alpine` | Não registrado neste inventário | Não registrado neste inventário | Imagem fixa do Redis do laboratório |
 
 ## Networks
 
@@ -61,6 +63,7 @@ Os containers anteriores ao MongoDB não têm labels `com.docker.compose.project
 | `portainer_data` | Volume nomeado, driver `local` | `/srv/teste-deploy-data/docker/volumes/portainer_data/_data` | `/data` no `portainer` | Dado persistente preservado na migração |
 | Socket Docker | Bind mount | `/var/run/docker.sock` | `/var/run/docker.sock` no `portainer` | Integração/configuração do container; leitura e escrita habilitadas |
 | `mongodb_data` | Volume nomeado, driver `local` | Sob `/srv/teste-deploy-data/docker/volumes/` | `/data/db` no `teste-deploy-mongodb` | Dado persistente do MongoDB; persistência após restart validada |
+| `redis_data` | Volume nomeado, driver `local` | `/srv/teste-deploy-data/docker/volumes/redis_data/_data` | `/data` no `teste-deploy-redis` | Dado operacional persistente; AOF após restart validado |
 
 O volume `portainer_data` foi criado em 28/08/2026, não possui labels nem opções declaradas e tem escopo `local`.
 
@@ -70,7 +73,7 @@ Os containers de teste não possuem volume nomeado, bind mount ou mount `tmpfs` 
 
 ## Docker Compose
 
-O primeiro levantamento não identificou recurso Compose em execução. O estado atual inclui a stack MongoDB definida em `infra/compose.yml`, com o container `teste-deploy-mongodb` e o volume `mongodb_data`. O Portainer continua sem labels Compose e não foi alterado.
+O primeiro levantamento não identificou recurso Compose em execução. O estado atual inclui a stack MongoDB/Redis definida em `infra/compose.yml`, com os containers `teste-deploy-mongodb` e `teste-deploy-redis`, e os volumes `mongodb_data` e `redis_data`. O Portainer continua sem labels Compose e não foi alterado.
 
 ## Classificação preliminar
 
@@ -81,6 +84,7 @@ O primeiro levantamento não identificou recurso Compose em execução. O estado
 | Container `portainer` | Container reconstruível | Recriar com os mounts, rede, porta e política de restart documentados. |
 | Volume `portainer_data` | Dado persistente | Preservar e validar o conteúdo antes de qualquer ação futura. |
 | Volume `mongodb_data` | Dado persistente | Preservar e incluir futuramente na estratégia de backup e recuperação. |
+| Volume `redis_data` | Dado operacional persistente | Preservar; decidir backup conforme o papel real de Redis em produção. |
 | Bind `/var/run/docker.sock` | Configuração de integração | Recriar somente se Portainer continuar administrando o daemon local. |
 | Containers `hello-world` e `ubuntu` parados | Recursos descartáveis de teste | Não possuem estado persistente identificado. |
 | Networks `bridge`, `host` e `none` | Recursos padrão reconstruíveis | Fornecidos pelo Docker. |

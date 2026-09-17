@@ -10,6 +10,16 @@ services:
     volumes:
       - mongodb_data:/data/db
 
+  redis:
+    image: redis:7.4.11-alpine
+    container_name: teste-deploy-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
 volumes:
   mongodb_data:
     name: mongodb_data
+  redis_data:
+    name: redis_data

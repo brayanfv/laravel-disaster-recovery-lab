@@ -47,10 +47,11 @@ O mountpoint passou a hospedar o armazenamento persistente de Docker e container
 | Containerd state temporário | `/run/containerd` |
 | Volume `portainer_data` | `/srv/teste-deploy-data/docker/volumes/portainer_data/_data` |
 | Volume `mongodb_data` | Sob `/srv/teste-deploy-data/docker/volumes/` |
+| Volume `redis_data` | `/srv/teste-deploy-data/docker/volumes/redis_data/_data` |
 
 Após reboot, `containerd` e `docker` iniciaram ativos, o container Portainer subiu automaticamente e containers, imagens e volumes existentes permaneceram visíveis.
 
-MongoDB passou a usar o volume persistente `mongodb_data` sob o data-root Docker. O uso da partição para Redis, dados fictícios adicionais e outros serviços do laboratório continua pendente de decisão específica.
+MongoDB e Redis usam os volumes persistentes `mongodb_data` e `redis_data` sob o data-root Docker. O uso da partição para dados fictícios adicionais e outros serviços do laboratório continua pendente de decisão específica.
 
 ## Origem e rollback temporário
 
@@ -77,6 +78,7 @@ Essas origens foram mantidas temporariamente como opção de rollback e ainda n�
 | `/srv/teste-deploy-data/docker` | Dado operacional persistente | Preservar; contém o data-root atual do Docker. |
 | `/srv/teste-deploy-data/containerd` | Dado operacional persistente | Preservar; contém o root persistente atual do containerd. |
 | `mongodb_data` | Dado persistente do MongoDB | Preservar; backup e restore permanecem pendentes. |
+| `redis_data` | Dado operacional persistente do Redis | Preservar; a necessidade de backup depende do papel futuro do Redis. |
 | `/var/lib/docker` e `/var/lib/containerd` | Rollback temporário | Não remover até decisão explícita posterior. |
 | Armazenamento externo de backups | Pendente | Definir separadamente; não é atendido pela nova partição. |
 
