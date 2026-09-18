@@ -48,7 +48,24 @@ O IP `172.23.1.115` é o endereço atual do laboratório e poderá exigir nova d
 - OpenSSH Server está disponível no destino por socket activation: `ssh.socket` está habilitado e em listening na porta 22 para IPv4 e IPv6. O UFW do destino está inativo neste laboratório.
 - A conexão manual `ssh teste@172.23.1.115` foi validada com autenticação por senha.
 - Um arquivo marcador não sensível foi enviado por SCP para `/srv/backups/teste-deploy/dr-backup-destination-test.txt` e lido remotamente com sucesso. Esse teste valida rede, SSH, escrita e leitura remota; ele **não é um backup real**.
-- A autenticação automatizada por chave SSH ainda não foi configurada.
+
+### Autenticação SSH dedicada ao laboratório
+
+| Item | Estado confirmado |
+|---|---|
+| Usuário de origem | `lucas-cooperja` |
+| Chave privada dedicada | `~/.ssh/id_ed25519_backup_lab` |
+| Chave pública dedicada | `~/.ssh/id_ed25519_backup_lab.pub` |
+| Finalidade | Autenticação exclusiva para o laboratório de backup/disaster recovery |
+| Permissão da chave privada | `600` |
+| Permissão da chave pública | `644` |
+| Destino | `teste@172.23.1.115:/srv/backups/teste-deploy` |
+
+- A chave pública foi instalada no usuário remoto com `ssh-copy-id`.
+- A autenticação sem senha interativa foi validada usando explicitamente a chave dedicada; o comando remoto retornou o marcador `DR_SSH_KEY_TEST`.
+- Uma transferência SCP com a opção `-i` apontando para a chave dedicada foi validada, assim como a leitura remota do marcador `DR_SSH_AUTOMATION_TEST`.
+- A chave privada não deve entrar no Git, logs ou documentação. Nenhum conteúdo de chave privada ou pública é reproduzido neste documento.
+- O endereço `172.23.1.115` continua sendo específico do laboratório atual e poderá mudar em outro ambiente.
 
 ## Matriz inicial
 
@@ -109,7 +126,6 @@ Esta sequência é conceitual e deverá ser refinada em um runbook após a defin
 
 ## Pendências antes da implementação
 
-- Definir autenticação automatizada por chave SSH e a estratégia de gestão dessas chaves.
 - Definir formato, nomenclatura, metadados e checksum dos artefatos.
 - Definir criptografia, gestão de chaves e controle de acesso para secrets.
 - Definir scripts de backup e restore; nenhum existe nesta etapa.

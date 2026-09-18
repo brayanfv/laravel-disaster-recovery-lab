@@ -32,7 +32,7 @@ A raiz continua com aproximadamente 15,8 GB e foi identificada anteriormente com
 | Dados persistentes de aplicação | MySQL contém usuários, migrations e sessões; volumes Portainer, MongoDB e Redis; marcador privado Laravel e log do Scheduler | Conjunto mínimo e seguro de dados representativos | Há marcadores de storage, mas recuperação completa de arquivos e fluxos de negócio ainda não foi testada | Definir e gerar dados fictícios adicionais conforme os cenários de recuperação | Alta |
 | Secrets/configuração | `.env` existe com permissão `664`; secrets e credenciais identificados por nome | Secrets protegidos e reproduzíveis sem valores em Git | Grupo `nogroup` tem leitura; procedimentos de transporte seguro não foram definidos | Revisar necessidade das permissões e definir tratamento seguro posteriormente | Alta |
 | HTTPS/TLS | Nenhum TLS ativo; apenas estrutura Certbot sem certificados emitidos | HTTPS se fizer parte do laboratório-alvo | Ausência de certificado, chave e renovação validada | Decidir se HTTPS deve compor o cenário antes de configurar | Média |
-| Armazenamento de backups | Destino externo validado em `teste@172.23.1.115:/srv/backups/teste-deploy`; ext4 com ~33 GB livres observados; escrita/leitura por SCP/SSH validadas | Destino definido, dimensionado e acessível ao laboratório | Ausência de destino externo resolvida; autenticação automatizada, retenção, formatos, checksums e backups reais permanecem pendentes | Definir chaves SSH, automação, integridade e política operacional antes de gerar backups reais | Resolvida para destino |
+| Armazenamento de backups | Destino externo validado em `teste@172.23.1.115:/srv/backups/teste-deploy`; ext4 com ~33 GB livres observados; escrita/leitura por SCP/SSH e chave SSH dedicada sem senha interativa validadas | Destino definido, dimensionado e acessível ao laboratório | Ausência de destino e de autenticação SSH automatizada resolvidas; retenção, formatos, checksums e backups reais permanecem pendentes | Definir scripts, integridade e política operacional antes de gerar backups reais | Resolvida para destino e autenticação |
 | Reconstrução em segunda máquina | Não identificada | Segunda máquina ou equivalente capaz de reconstruir o ambiente | Não há destino, automação declarativa ou teste de reconstrução | Definir futuramente a máquina-alvo e o critério de sucesso do teste | Crítica |
 
 ## Classificação por natureza
@@ -50,7 +50,7 @@ A raiz continua com aproximadamente 15,8 GB e foi identificada anteriormente com
 
 ## Prioridades para a próxima fase
 
-1. **Crítica:** definir autenticação automatizada por chave SSH, formatos, checksums e automação antes de gerar backups reais no destino externo validado.
+1. **Crítica:** definir scripts, formatos, checksums e automação antes de gerar backups reais no destino externo validado.
 2. **Crítica:** definir o destino e os critérios para uma futura reconstrução em segunda máquina.
 3. **Alta:** definir o papel do Redis, seus requisitos de segurança e a necessidade de backup/restore conforme o cenário de produção.
 4. **Alta:** definir backup/restore do MongoDB, validar recuperação em máquina limpa e avaliar o tuning pendente para produção.
