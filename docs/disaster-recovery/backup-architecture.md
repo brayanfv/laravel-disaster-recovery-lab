@@ -23,7 +23,7 @@ Ela **não é o destino final de disaster recovery** e não protege contra perda
 - área temporária para cópias locais;
 - cache local de backup.
 
-O destino final de backup do laboratório foi preparado em uma máquina fisicamente separada da máquina principal. O uso desse destino para backups reais, a automação de acesso e a política de retenção ainda não foram implementados.
+O destino final de backup do laboratório foi preparado em uma máquina fisicamente separada da máquina principal. Ele já foi usado e validado nos fluxos manuais dos componentes persistentes; automação de backup, retenção e monitoramento ainda não foram implementados.
 
 ## Destino externo validado
 
@@ -126,11 +126,13 @@ Esta sequência é conceitual e deverá ser refinada em um runbook após a defin
 
 ## Pendências antes da implementação
 
-- Definir formato, nomenclatura com data/hora e metadados dos artefatos.
+- O desenho de automação, organização de staging, nomenclatura por execução, integridade, falhas e retenção provisória está em [backup-automation-design.md](backup-automation-design.md). Ele ainda não implementa scripts ou operações.
 - Definir criptografia, gestão de chaves e controle de acesso para secrets.
-- Definir scripts de backup e restore; não há scripts nesta etapa, embora o fluxo manual MySQL tenha sido validado.
+- Implementar e validar scripts de backup a partir do desenho; não há scripts nesta etapa.
 - Definir logs, monitoramento e alertas de falha de backup.
 - Definir verificação automática de integridade e validade dos artefatos.
+- Implementar retenção por diretório de execução somente após backups válidos e verificados.
+- Definir agendamento Cron de backup somente após a validação dos scripts.
 - Definir runbook detalhado de restore, incluindo pré-requisitos, ordem e rollback.
 - Validar todo o fluxo em uma segunda máquina limpa ou ambiente equivalente.
 - Decidir o papel real do Redis em produção e, consequentemente, sua necessidade de backup.
@@ -139,4 +141,4 @@ Esta sequência é conceitual e deverá ser refinada em um runbook após a defin
 
 ## Situação atual
 
-Esta é a arquitetura inicial de backup e disaster recovery do laboratório. Os fluxos manuais de backup e restore de MySQL, MongoDB, Redis, Laravel storage e `portainer_data` foram validados com staging local, SHA-256, transferência externa e restores isolados. Ainda não há scripts, automação, backup dos demais componentes, criptografia, retenção ou restore em máquina limpa.
+Esta é a arquitetura inicial de backup e disaster recovery do laboratório. Os fluxos manuais de backup e restore de MySQL, MongoDB, Redis, Laravel storage e `portainer_data` foram validados com staging local, SHA-256, transferência externa e restores isolados. O desenho da futura automação está documentado, mas ainda não há scripts, agendamento, retenção automática, monitoramento, backup dos demais componentes, criptografia ou restore em máquina limpa.
