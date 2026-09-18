@@ -77,7 +77,7 @@ O IP `172.23.1.115` é o endereço atual do laboratório e poderá exigir nova d
 | `node_modules/` | Dependência JavaScript | Sim | Não | Não incluir | `npm ci` usando o lockfile | N/A | N/A | N/A | Build/dependências concluídos sem divergência | Não versionado. |
 | `.env`, `infra/.env` e secrets de aplicação | Sensível | Não sem os valores protegidos | Sim, em fluxo separado | Artefato de secrets protegido e criptografado; formato e chave ainda pendentes | Recuperar de armazenamento protegido e aplicar permissões adequadas | Após mudança e diário | 7 cópias diárias, provisoriamente | Destino externo validado; proteção e automação pendentes | Aplicação conecta aos serviços sem expor valores; `APP_KEY` preservada quando necessária | Nunca incluir no Git, logs ou documentação. |
 | `/etc/mysql/debian.cnf` | Configuração sensível do host | Não diretamente | Precisa de decisão | Incluir no fluxo protegido somente se for necessário para manutenção local do MySQL | Restaurar de artefato protegido ou recriar conforme a instalação compatível | Após mudança e/ou diário, se incluído | 7 cópias diárias, provisoriamente | Destino externo validado; proteção e automação pendentes | Administração local do MySQL funciona, se estiver no escopo | Conteúdo não foi inspecionado; não contém dado de negócio da aplicação. |
-| MySQL `teste_deploy` | Banco persistente | Não | Sim | Dump lógico do banco por ferramenta MySQL apropriada | Restore pelo cliente MySQL em servidor compatível | Diário | 7 backups diários | Destino externo validado; staging local opcional | Schema, migrations, usuários e tabelas Laravel recuperados; validar aplicação | O dump deverá contemplar dados de negócio e tabelas operacionais existentes. |
+| MySQL `teste_deploy` | Banco persistente | Não | Sim | Dump lógico manual validado com `mysqldump`, `--single-transaction`, `--routines`, `--triggers`, `--events` e `--no-tablespaces` | Restore manual validado pelo cliente MySQL em banco isolado | Diário | 7 backups diários | Destino externo validado; staging `/srv/teste-deploy-data/backup-staging/mysql` | Tabelas, `users_count = 2` e `sessions_count = 7108` validados no restore isolado | SHA-256 local/remoto e transferência SCP foram validados; automação, nomenclatura e retenção permanecem pendentes. |
 | MySQL: sessões, cache, locks e filas | Estado temporário/operacional dentro de `teste_deploy` | Parcialmente | Incluído no dump MySQL; decisão de uso no restore pendente | Coberto pelo dump lógico de `teste_deploy` | Restore como parte do banco | Diário | 7 backups diários | Mesmo destino do MySQL | Confirmar impacto de sessões ativas, cache, jobs pendentes, batches e falhas | Cache e locks são reconstruíveis; sessões encerram ao serem perdidas; filas continuam sem carga real validada. |
 | MongoDB e `mongodb_data` | Banco documental persistente | Não | Sim | `mongodump` lógico; avaliar também necessidade de cópia consistente do volume em etapa posterior | `mongorestore` em MongoDB compatível, recriado pelo Compose | Diário | 7 backups diários | Destino externo validado; staging local opcional | Confirmar `DR_TEST_MONGO_001` em `teste_deploy_lab.recovery_tests` | Persistência após restart foi validada; backup e restore ainda não. |
 | Redis e `redis_data` | Estado operacional persistente | Depende do papel | Sim para o teste; decidir para produção | Preservar backup lógico compatível ou cópia consistente do estado AOF/volume; método definitivo pendente | Restaurar no container Redis compatível e validar o AOF/estado | Diário, provisoriamente para o laboratório | 7 backups diários | Destino externo validado; staging local opcional | Confirmar `DR_TEST_REDIS_001` | Em produção, cache descartável pode não requerer backup; filas, sessões ou estado relevante podem requerê-lo. |
@@ -114,7 +114,7 @@ Esta sequência é conceitual e deverá ser refinada em um runbook após a defin
 
 - A aplicação inicia e é atendida pelo Nginx.
 - O repositório Git está no commit esperado para o teste.
-- MySQL `teste_deploy` foi recuperado e a aplicação consegue utilizá-lo.
+- MySQL `teste_deploy` foi recuperado e a aplicação consegue utilizá-lo; o fluxo manual já foi validado em banco isolado e precisa ser repetido em máquina limpa.
 - O registro `DR_TEST_MONGO_001` existe após o restore do MongoDB.
 - O estado `DR_TEST_REDIS_001` existe após o restore do Redis quando ele fizer parte do escopo do teste.
 - `storage/app/private/DR_TEST_STORAGE_001.txt` existe após o restore.
@@ -126,9 +126,9 @@ Esta sequência é conceitual e deverá ser refinada em um runbook após a defin
 
 ## Pendências antes da implementação
 
-- Definir formato, nomenclatura, metadados e checksum dos artefatos.
+- Definir formato, nomenclatura com data/hora e metadados dos artefatos.
 - Definir criptografia, gestão de chaves e controle de acesso para secrets.
-- Definir scripts de backup e restore; nenhum existe nesta etapa.
+- Definir scripts de backup e restore; não há scripts nesta etapa, embora o fluxo manual MySQL tenha sido validado.
 - Definir logs, monitoramento e alertas de falha de backup.
 - Definir verificação automática de integridade e validade dos artefatos.
 - Definir runbook detalhado de restore, incluindo pré-requisitos, ordem e rollback.
@@ -139,4 +139,4 @@ Esta sequência é conceitual e deverá ser refinada em um runbook após a defin
 
 ## Situação atual
 
-Esta é a arquitetura inicial de backup e disaster recovery do laboratório. O destino externo foi validado somente por um arquivo marcador transferido por SCP. Nenhum backup real, restore, dump, criptografia, upload automatizado ou agendamento de backup foi criado ou executado.
+Esta é a arquitetura inicial de backup e disaster recovery do laboratório. O fluxo manual de backup e restore do MySQL foi validado com staging local, SHA-256, transferência externa e banco isolado. Ainda não há scripts, automação, backup dos demais componentes, criptografia, retenção ou restore em máquina limpa.
