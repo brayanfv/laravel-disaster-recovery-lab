@@ -122,6 +122,8 @@ Arquivos `.sha256` individuais poderão continuar existindo para validação iso
 
 O manifesto permite validar a execução como conjunto no staging e novamente no destino externo. SHA-256 confirma integridade dos bytes transferidos; ele não substitui uma cópia externa, não fornece criptografia e não elimina a necessidade de um restore de teste.
 
+Como hardening comum implementado nos scripts isolados de MySQL e MongoDB, cada artefato e seu checksum devem terminar em modo `600` tanto no staging local quanto no diretório remoto `.incomplete`, antes da validação de checksum e promoção. A aplicação é explícita, sem `chmod` recursivo: somente os arquivos esperados recebem a permissão. A execução MongoDB `2026-09-22_163621` validou os quatro modos — artefato/checksum local e artefato/checksum remoto — em `600`, além da sequência SCP → `chmod 600` remoto → checksum → promoção. A política comum está validada; o fluxo MySQL ainda não teve uma execução específica com esse hardening.
+
 ## Falhas, logs e resultado
 
 ### Política de falha
@@ -226,4 +228,4 @@ Os procedimentos manuais validados permanecem a referência para MySQL, MongoDB,
 
 ## Situação atual
 
-O desenho da automação está definido para o laboratório. Os backups isolados de MySQL e MongoDB foram implementados e validados ponta a ponta com staging `.incomplete`, checksum remoto e promoção; o MongoDB também validou o uso da configuração temporária `--config` sem senha em argv e a remoção dos temporários do container. Não há `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, scripts de Redis/Laravel storage/Portainer ou restore automatizado. O hardening uniforme das permissões remotas dos artefatos MongoDB permanece pendente. O disaster recovery geral permanece pendente.
+O desenho da automação está definido para o laboratório. Os backups isolados de MySQL e MongoDB foram implementados e validados ponta a ponta com staging `.incomplete`, checksum remoto e promoção; o MongoDB também validou o uso da configuração temporária `--config` sem senha em argv, a remoção dos temporários do container e o hardening uniforme de permissões `600` para artefato/checksum local e remoto. Não há `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, scripts de Redis/Laravel storage/Portainer ou restore automatizado. O disaster recovery geral permanece pendente.

@@ -73,6 +73,15 @@ dr_create_sha256() {
     )
 }
 
+dr_set_private_permissions() {
+    if (( $# == 0 )); then
+        printf 'A aplicação de permissões privadas exige ao menos um arquivo.\n' >&2
+        return 1
+    fi
+
+    chmod 600 -- "$@"
+}
+
 dr_validate_private_file() {
     local file_path="$1"
     local file_mode
@@ -133,6 +142,15 @@ dr_validate_relative_path() {
 
     if [[ ! "$relative_path" =~ ^[A-Za-z0-9._/-]+$ || "$relative_path" == /* || "$relative_path" == *'..'* ]]; then
         printf 'Caminho relativo inválido.\n' >&2
+        return 1
+    fi
+}
+
+dr_validate_absolute_path() {
+    local absolute_path="$1"
+
+    if [[ ! "$absolute_path" =~ ^/[A-Za-z0-9._/-]*$ || "$absolute_path" == *'..'* ]]; then
+        printf 'Caminho absoluto inválido.\n' >&2
         return 1
     fi
 }
@@ -211,6 +229,44 @@ set -Eeuo pipefail
 
 cd -- "$1"
 sha256sum -c -- "$2"
+REMOTE_COMMAND
+}
+
+dr_remote_set_private_permissions() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_directory="$4"
+    shift 4
+
+    if (( $# == 0 )); then
+        printf 'A aplicação remota de permissões exige ao menos um arquivo.\n' >&2
+        return 1
+    fi
+
+    dr_validate_absolute_path "$remote_directory"
+
+    local relative_file
+    for relative_file in "$@"; do
+        dr_validate_relative_path "$relative_file"
+    done
+
+    dr_ssh "$remote_user" "$remote_host" "$ssh_key" bash -s -- "$remote_directory" "$@" <<'REMOTE_COMMAND'
+set -Eeuo pipefail
+
+remote_directory="$1"
+shift
+
+[[ -d "$remote_directory" ]]
+
+remote_files=()
+for relative_file in "$@"; do
+    remote_file="${remote_directory}/${relative_file}"
+    [[ -f "$remote_file" ]]
+    remote_files+=("$remote_file")
+done
+
+chmod 600 -- "${remote_files[@]}"
 REMOTE_COMMAND
 }
 

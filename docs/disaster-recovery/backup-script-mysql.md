@@ -53,6 +53,10 @@ O dump preserva as opções manuais já validadas:
 
 O checksum é gerado dentro do diretório `mysql/`, com caminho relativo, equivalente a `sha256sum teste_deploy.sql > teste_deploy.sql.sha256`.
 
+Após a promoção local do dump e a criação do checksum, o helper comum aplica explicitamente modo `600` a `teste_deploy.sql` e `teste_deploy.sql.sha256`. Assim, ambos devem terminar privados independentemente da criação inicial sob `umask 077`.
+
+A mesma política é implementada no MySQL e no MongoDB. A validação real do hardening foi executada com o fluxo MongoDB em `2026-09-22_163621`; uma execução MySQL específica com essa alteração de permissões ainda não foi realizada.
+
 ## Transferência externa automatizada
 
 Os parâmetros remotos são variáveis de ambiente com defaults exclusivos do laboratório atual:
@@ -72,9 +76,10 @@ Após criar e validar o dump/checksum local, o fluxo remoto proposto pelo script
 2. falhar se `/srv/backups/teste-deploy/.incomplete/<RUN_ID>` já existir;
 3. criar `/srv/backups/teste-deploy/.incomplete/<RUN_ID>/mysql/`;
 4. transferir somente `teste_deploy.sql` e `teste_deploy.sql.sha256` por SCP;
-5. executar `sha256sum -c teste_deploy.sql.sha256` no diretório remoto `mysql/`;
-6. confirmar, ainda em `.incomplete`, a existência de todos os artefatos esperados;
-7. promover por `mv`, no destino remoto, de `.incomplete/<RUN_ID>` para `<RUN_ID>`; se o `mv` retornar sucesso, a promoção é concluída.
+5. aplicar `chmod 600` remotamente, apenas nesses dois arquivos em `.incomplete`;
+6. executar `sha256sum -c teste_deploy.sql.sha256` no diretório remoto `mysql/`;
+7. confirmar, ainda em `.incomplete`, a existência de todos os artefatos esperados;
+8. promover por `mv`, no destino remoto, de `.incomplete/<RUN_ID>` para `<RUN_ID>`; se o `mv` retornar sucesso, a promoção é concluída.
 
 Somente o diretório promovido em `BACKUP_REMOTE_ROOT/<RUN_ID>` será um backup remoto válido. Se o `mv` falhar, a promoção falha e o diretório `.incomplete` permanece para diagnóstico; ele não é restore point válido. Em falha durante preparação, SCP ou checksum remoto, a promoção também não ocorre. O dump local já validado pode permanecer nessas situações.
 
@@ -83,14 +88,15 @@ Somente o diretório promovido em `BACKUP_REMOTE_ROOT/<RUN_ID>` será um backup 
 - O script usa Bash, `set -Eeuo pipefail` e `umask 077`.
 - `common.sh` fornece somente helpers compartilháveis de `RUN_ID`, diretórios, logs, dependências, checksum e duração; ele não contém lógica de MySQL.
 - Os helpers de SSH/SCP, criação de staging remoto, verificação remota de checksum e promoção recebem parâmetros genéricos; nomes de banco e artefatos MySQL permanecem em `backup-mysql.sh`.
-- As permissões privadas de novos diretórios, logs e artefatos dependem do `umask 077` definido pelo script executor.
-- Valida `mysqldump`, `sha256sum`, `stat`, `tee`, `ssh` e `scp` antes do dump.
+- As permissões privadas de novos diretórios e logs dependem do `umask 077` definido pelo script executor. Para artefatos, o helper comum aplica explicitamente `chmod 600` ao dump/checksum local e, após SCP, ao dump/checksum remoto antes da validação e promoção.
+- Valida `mysqldump`, `sha256sum`, `stat`, `tee`, `chmod`, `ssh` e `scp` antes do dump.
 - Prepara e valida o log antes de criar o staging específico do `RUN_ID`, evitando diretórios de execução vazios se a infraestrutura de logs falhar.
 - O dump é escrito inicialmente em arquivo parcial oculto e somente é promovido ao nome final após sucesso do `mysqldump`.
 - Se o dump ou a geração do checksum falhar, somente os artefatos criados pela execução atual são removidos para não parecerem um backup válido; o log de diagnóstico é preservado e o script retorna código diferente de zero. Artefatos preexistentes nunca são removidos por uma tentativa com o mesmo `RUN_ID`.
 - O arquivo de log nunca é sobrescrito para evitar misturar duas execuções com o mesmo `RUN_ID`.
 - Logs registram etapas, caminhos, valor SHA-256, duração e códigos de saída, mas nunca passwords, conteúdo de `.env`, chaves ou outros secrets.
 - O resultado `SUCCESS` só pode ser registrado depois do dump/checksum local, transferência, checksum remoto e promoção remota bem-sucedidos.
+- Se o `chmod 600` remoto falhar, o script retorna falha sem promover; o diretório `.incomplete` e o backup local válido permanecem para diagnóstico.
 
 ## Validação real no laboratório
 

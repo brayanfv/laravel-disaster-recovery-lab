@@ -77,8 +77,8 @@ readonly DR_LOG_FILE
 
 dr_log 'INFO' "Pré-validação do backup MySQL iniciada; RUN_ID=${RUN_ID}"
 
-if ! dr_require_commands mysqldump sha256sum stat tee ssh scp; then
-    dr_log 'ERROR' 'Dependência obrigatória ausente: mysqldump, sha256sum, stat, tee, ssh ou scp'
+if ! dr_require_commands mysqldump sha256sum stat tee chmod ssh scp; then
+    dr_log 'ERROR' 'Dependência obrigatória ausente: mysqldump, sha256sum, stat, tee, chmod, ssh ou scp'
     exit 1
 fi
 
@@ -164,6 +164,12 @@ PARTIAL_CHECKSUM_MAY_EXIST=1
 dr_create_sha256 "$MYSQL_DIRECTORY" "$MYSQL_ARTIFACT"
 PARTIAL_CHECKSUM_MAY_EXIST=0
 CHECKSUM_CREATED=1
+
+if ! dr_set_private_permissions "$ARTIFACT_PATH" "$CHECKSUM_PATH"; then
+    dr_log 'ERROR' 'Não foi possível restringir as permissões dos artefatos locais MySQL'
+    exit 1
+fi
+
 read -r CHECKSUM_VALUE _ < "$CHECKSUM_PATH"
 dr_log 'INFO' "Checksum SHA-256 criado; sha256=${CHECKSUM_VALUE}; checksum=${CHECKSUM_PATH}"
 LOCAL_BACKUP_VALID=1
@@ -201,6 +207,22 @@ else
     dr_log 'ERROR' "Falha na transferência remota; exit code=${remote_exit_code}"
     exit "$remote_exit_code"
 fi
+
+if dr_remote_set_private_permissions \
+    "$BACKUP_REMOTE_USER" \
+    "$BACKUP_REMOTE_HOST" \
+    "$BACKUP_SSH_KEY" \
+    "$REMOTE_MYSQL_DIRECTORY" \
+    "$MYSQL_ARTIFACT" \
+    "${MYSQL_ARTIFACT}.sha256"; then
+    :
+else
+    remote_exit_code=$?
+    dr_log 'ERROR' "Não foi possível restringir as permissões remotas; diretório incompleto foi preservado; exit code=${remote_exit_code}"
+    exit "$remote_exit_code"
+fi
+
+dr_log 'INFO' 'Permissões remotas restritivas aplicadas aos artefatos MySQL'
 
 if dr_remote_verify_checksum \
     "$BACKUP_REMOTE_USER" \

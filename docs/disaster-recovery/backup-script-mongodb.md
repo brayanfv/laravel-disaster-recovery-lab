@@ -53,6 +53,7 @@ O script cria:
 5. Usa `docker cp` para copiar o archive a um arquivo parcial oculto no staging e remove o archive temporário do container após cópia bem-sucedida.
 6. Promove o archive ao nome final apenas após sucesso de `docker cp`.
 7. Gera `teste_deploy_lab.archive.sha256` dentro do diretório `mongodb/`, usando caminho relativo.
+8. Aplica explicitamente modo `600` ao archive e ao checksum locais.
 
 ## Transferência externa
 
@@ -61,9 +62,10 @@ O script reaproveita os helpers SSH/SCP genéricos já utilizados pelo MySQL:
 1. falha se o diretório remoto final ou `.incomplete/<RUN_ID>` já existir;
 2. cria `<BACKUP_REMOTE_ROOT>/.incomplete/<RUN_ID>/mongodb/`;
 3. transfere somente o archive e seu checksum;
-4. executa `sha256sum -c teste_deploy_lab.archive.sha256` remotamente;
-5. confirma os dois artefatos em `.incomplete`;
-6. promove por `mv` para `<BACKUP_REMOTE_ROOT>/<RUN_ID>`.
+4. aplica `chmod 600` remotamente, apenas ao archive e ao checksum em `.incomplete`;
+5. executa `sha256sum -c teste_deploy_lab.archive.sha256` remotamente;
+6. confirma os dois artefatos em `.incomplete`;
+7. promove por `mv` para `<BACKUP_REMOTE_ROOT>/<RUN_ID>`.
 
 O script usa chave dedicada, `BatchMode=yes` e `IdentitiesOnly=yes`; não desabilita verificação de host key nem usa `StrictHostKeyChecking=no`.
 
@@ -81,18 +83,32 @@ A execução isolada com `RUN_ID=2026-09-22_161037` terminou com `Backup MongoDB
 
 A credencial veio de `MONGODB_BACKUP_PASSWORD_FILE`, externo ao repositório. A configuração YAML temporária foi enviada por stdin, usada com `mongodump --config` e removida após o uso; a senha não foi passada em argv nem registrada.
 
+### Hardening de permissões — 2026-09-22_163621
+
+Uma nova execução isolada com `RUN_ID=2026-09-22_163621` terminou com `Backup MongoDB SUCCESS` e validou o hardening comum de permissões.
+
+| Local | Artefato | Modo validado |
+|---|---|---|
+| Staging local | `teste_deploy_lab.archive` | `600` |
+| Staging local | `teste_deploy_lab.archive.sha256` | `600` |
+| Diretório remoto promovido | `teste_deploy_lab.archive` | `600` |
+| Diretório remoto promovido | `teste_deploy_lab.archive.sha256` | `600` |
+
+O checksum remoto retornou `teste_deploy_lab.archive: SUCESSO`. O diretório `.incomplete/2026-09-22_163621` não permaneceu após a promoção, confirmando a ordem SCP → `chmod 600` remoto → checksum → promoção.
+
 ## Cleanup e falhas
 
 - Valida `docker`, `sha256sum`, `stat`, `tee`, `ssh` e `scp` antes de criar o staging MongoDB.
 - Se `mongodump`, `docker cp` ou checksum local falhar, remove somente os artefatos e parciais criados pela execução atual, preserva o log e retorna código diferente de zero.
 - Configuração e archive temporários do container só recebem flag de cleanup depois que a checagem de colisão confirma sua ausência; eles são removidos em sucesso e pelo cleanup quando uma etapa posterior falha.
 - Se a falha ocorrer após o checksum local válido, o archive/checksum local permanecem; uma falha remota não é sucesso e não promove diretório final.
+- Se o `chmod 600` remoto falhar, o diretório `.incomplete` e o backup local válido permanecem para diagnóstico; a promoção não ocorre.
 - Diretórios `.incomplete` remotos não são removidos automaticamente e não são restore points válidos.
 - Artefatos preexistentes em `RUN_ID` repetido não são sobrescritos ou removidos.
 
 ## Limitações pendentes
 
-- No destino remoto da validação, o archive ficou em modo `644` e o checksum em `600`. O hardening futuro deve uniformizar as permissões remotas dos artefatos, preferencialmente em `600`; essa melhoria não foi aplicada neste incremento.
+- A validação anterior que observou archive remoto em modo `644` e checksum em `600` foi superada pela execução `2026-09-22_163621`, que confirmou modo `600` para archive e checksum local/remoto.
 - Não há `manifest.sha256` global, retenção, lock global, Cron, monitoramento, orquestrador ou restore automatizado.
 - A estratégia de secrets é provisória; o password file não substitui uma política definitiva de gestão/criptografia de secrets.
 - Backup e restore em máquina limpa continuam pendentes.
