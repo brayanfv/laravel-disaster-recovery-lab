@@ -73,6 +73,164 @@ dr_create_sha256() {
     )
 }
 
+dr_validate_ssh_backup_configuration() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local remote_root="$3"
+    local ssh_key="$4"
+
+    if [[ ! "$remote_user" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+        printf 'BACKUP_REMOTE_USER inválido.\n' >&2
+        return 1
+    fi
+
+    if [[ ! "$remote_host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+        printf 'BACKUP_REMOTE_HOST inválido.\n' >&2
+        return 1
+    fi
+
+    if [[ ! "$remote_root" =~ ^/[A-Za-z0-9._/-]*$ || "$remote_root" == *'..'* ]]; then
+        printf 'BACKUP_REMOTE_ROOT inválido.\n' >&2
+        return 1
+    fi
+
+    if [[ ! -f "$ssh_key" || ! -r "$ssh_key" ]]; then
+        printf 'BACKUP_SSH_KEY não é um arquivo legível.\n' >&2
+        return 1
+    fi
+}
+
+dr_ssh_target() {
+    local remote_user="$1"
+    local remote_host="$2"
+
+    printf '%s@%s\n' "$remote_user" "$remote_host"
+}
+
+dr_validate_relative_path() {
+    local relative_path="$1"
+
+    if [[ ! "$relative_path" =~ ^[A-Za-z0-9._/-]+$ || "$relative_path" == /* || "$relative_path" == *'..'* ]]; then
+        printf 'Caminho relativo inválido.\n' >&2
+        return 1
+    fi
+}
+
+dr_ssh() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    shift 3
+
+    ssh \
+        -i "$ssh_key" \
+        -o BatchMode=yes \
+        -o IdentitiesOnly=yes \
+        -- "$(dr_ssh_target "$remote_user" "$remote_host")" "$@"
+}
+
+dr_scp_to_remote() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_directory="$4"
+    shift 4
+
+    scp \
+        -i "$ssh_key" \
+        -o BatchMode=yes \
+        -o IdentitiesOnly=yes \
+        -- "$@" "$(dr_ssh_target "$remote_user" "$remote_host"):${remote_directory}/"
+}
+
+dr_remote_prepare_run() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_root="$4"
+    local run_id="$5"
+    local component_directory="$6"
+
+    dr_validate_relative_path "$component_directory"
+
+    dr_ssh "$remote_user" "$remote_host" "$ssh_key" bash -s -- "$remote_root" "$run_id" "$component_directory" <<'REMOTE_COMMAND'
+set -Eeuo pipefail
+
+remote_root="$1"
+run_id="$2"
+component_directory="$3"
+final_directory="${remote_root}/${run_id}"
+incomplete_directory="${remote_root}/.incomplete/${run_id}"
+
+if [[ -e "$final_directory" ]]; then
+    printf 'Diretório remoto final já existe: %s\n' "$final_directory" >&2
+    exit 1
+fi
+
+if [[ -e "$incomplete_directory" ]]; then
+    printf 'Diretório remoto incompleto já existe: %s\n' "$incomplete_directory" >&2
+    exit 1
+fi
+
+mkdir -p -- "${incomplete_directory}/${component_directory}"
+REMOTE_COMMAND
+}
+
+dr_remote_verify_checksum() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_directory="$4"
+    local checksum_name="$5"
+
+    dr_validate_relative_path "$checksum_name"
+
+    dr_ssh "$remote_user" "$remote_host" "$ssh_key" bash -s -- "$remote_directory" "$checksum_name" <<'REMOTE_COMMAND'
+set -Eeuo pipefail
+
+cd -- "$1"
+sha256sum -c -- "$2"
+REMOTE_COMMAND
+}
+
+dr_remote_promote_run() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_root="$4"
+    local run_id="$5"
+    shift 5
+
+    if (( $# == 0 )); then
+        printf 'A promoção remota exige ao menos um artefato esperado.\n' >&2
+        return 1
+    fi
+
+    local artifact_path
+    for artifact_path in "$@"; do
+        dr_validate_relative_path "$artifact_path"
+    done
+
+    dr_ssh "$remote_user" "$remote_host" "$ssh_key" bash -s -- "$remote_root" "$run_id" "$@" <<'REMOTE_COMMAND'
+set -Eeuo pipefail
+
+remote_root="$1"
+run_id="$2"
+shift 2
+incomplete_directory="${remote_root}/.incomplete/${run_id}"
+final_directory="${remote_root}/${run_id}"
+
+[[ -d "$incomplete_directory" ]]
+[[ ! -e "$final_directory" ]]
+
+for artifact_path in "$@"; do
+    [[ -f "${incomplete_directory}/${artifact_path}" ]]
+done
+
+mv -- "$incomplete_directory" "$final_directory"
+REMOTE_COMMAND
+}
+
 dr_elapsed_seconds() {
     local started_at="$1"
     local finished_at

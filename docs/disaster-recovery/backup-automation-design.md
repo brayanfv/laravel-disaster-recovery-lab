@@ -4,7 +4,7 @@
 
 Este documento define o desenho inicial da futura automação de backup do laboratório `TESTE-DEPLOY`. Ele se baseia nos fluxos manuais já validados para MySQL, MongoDB, Redis, `storage/app/private` e `portainer_data`.
 
-Este é um documento de design. A primeira implementação incremental — backup local de MySQL — já existe e teve testes reais de sucesso e falha documentados em [backup-script-mysql.md](backup-script-mysql.md). Ainda não há agendamento, transferência automática, retenção automática ou restore automatizado. Os procedimentos manuais documentados continuam sendo a referência para os demais componentes.
+Este é um documento de design. A primeira implementação incremental — backup MySQL com dump/checksum local e fluxo de transferência remota `.incomplete` — já existe e foi validada em sucesso e falha de conectividade. As evidências estão em [backup-script-mysql.md](backup-script-mysql.md). Ainda não há agendamento, retenção automática ou restore automatizado. Os procedimentos manuais documentados continuam sendo a referência para os demais componentes.
 
 ## Princípios
 
@@ -36,7 +36,7 @@ scripts/disaster-recovery/
 - Quando chamado por `backup.sh`, cada script de componente deverá usar o `RUN_ID` e os parâmetros de destino fornecidos pelo orquestrador, preservando a organização da execução completa.
 - Quando executado isoladamente, um script de componente poderá gerar um `RUN_ID` próprio. Esse resultado será um artefato isolado do componente, não uma execução completa válida do sistema.
 
-No estado atual, existem apenas `backup-mysql.sh` e `lib/common.sh`. `backup.sh`, os scripts dos demais componentes e os recursos de transferência, retenção e restore ainda são proposta e não existem.
+No estado atual, existem apenas `backup-mysql.sh` e `lib/common.sh`. `backup.sh`, os scripts dos demais componentes e os recursos de retenção e restore ainda são proposta e não existem.
 
 ## Identificador e estrutura de uma execução
 
@@ -224,4 +224,4 @@ Os procedimentos manuais validados permanecem a referência para MySQL, MongoDB,
 
 ## Situação atual
 
-O desenho da automação está definido para o laboratório. O backup local de MySQL já foi implementado e validado em cenário de sucesso e em falha proposital, incluindo dump, checksum, log e cleanup de artefatos parciais. Não há ainda transferência externa automatizada, `.incomplete` remoto, `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, scripts dos demais componentes ou restore automatizado. O disaster recovery geral permanece pendente.
+O desenho da automação está definido para o laboratório. O backup MySQL foi implementado e validado em sucesso local, falha proposital de dump, falha real de conectividade externa e sucesso completo com staging `.incomplete`, checksum remoto e promoção. Não há `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, scripts dos demais componentes ou restore automatizado. O disaster recovery geral permanece pendente.

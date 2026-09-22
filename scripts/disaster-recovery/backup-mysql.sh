@@ -8,6 +8,11 @@ SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$SCRIPT_DIRECTORY/lib/common.sh"
 
 readonly MYSQL_ARTIFACT='teste_deploy.sql'
+BACKUP_REMOTE_USER="${BACKUP_REMOTE_USER:-teste}"
+BACKUP_REMOTE_HOST="${BACKUP_REMOTE_HOST:-172.23.1.115}"
+BACKUP_REMOTE_ROOT="${BACKUP_REMOTE_ROOT:-/srv/backups/teste-deploy}"
+BACKUP_SSH_KEY="${BACKUP_SSH_KEY:-${HOME}/.ssh/id_ed25519_backup_lab}"
+readonly BACKUP_REMOTE_USER BACKUP_REMOTE_HOST BACKUP_REMOTE_ROOT BACKUP_SSH_KEY
 
 STARTED_AT="$(date '+%s')"
 MYSQL_DIRECTORY=''
@@ -21,12 +26,13 @@ PARTIAL_ARTIFACT_CREATED=0
 ARTIFACT_CREATED=0
 CHECKSUM_CREATED=0
 PARTIAL_CHECKSUM_MAY_EXIST=0
+LOCAL_BACKUP_VALID=0
 
 cleanup() {
     local exit_code=$?
 
     if (( exit_code != 0 )); then
-        if [[ -n "${MYSQL_DIRECTORY:-}" ]]; then
+        if [[ -n "${MYSQL_DIRECTORY:-}" && "$LOCAL_BACKUP_VALID" -eq 0 ]]; then
             if (( PARTIAL_ARTIFACT_CREATED )); then
                 rm -f -- "$PARTIAL_ARTIFACT_PATH"
             fi
@@ -71,8 +77,8 @@ readonly DR_LOG_FILE
 
 dr_log 'INFO' "Pré-validação do backup MySQL iniciada; RUN_ID=${RUN_ID}"
 
-if ! dr_require_commands mysqldump sha256sum stat tee; then
-    dr_log 'ERROR' 'Dependência obrigatória ausente: mysqldump, sha256sum, stat ou tee'
+if ! dr_require_commands mysqldump sha256sum stat tee ssh scp; then
+    dr_log 'ERROR' 'Dependência obrigatória ausente: mysqldump, sha256sum, stat, tee, ssh ou scp'
     exit 1
 fi
 
@@ -101,6 +107,15 @@ fi
 defaults_mode="$(stat -c '%a' -- "$MYSQL_BACKUP_DEFAULTS_FILE")"
 if (( (8#${defaults_mode} & 8#077) != 0 )); then
     dr_log 'ERROR' 'MYSQL_BACKUP_DEFAULTS_FILE não pode ter permissões para grupo ou outros'
+    exit 1
+fi
+
+if ! dr_validate_ssh_backup_configuration \
+    "$BACKUP_REMOTE_USER" \
+    "$BACKUP_REMOTE_HOST" \
+    "$BACKUP_REMOTE_ROOT" \
+    "$BACKUP_SSH_KEY"; then
+    dr_log 'ERROR' 'Configuração de transferência SSH inválida ou chave indisponível'
     exit 1
 fi
 
@@ -151,5 +166,72 @@ PARTIAL_CHECKSUM_MAY_EXIST=0
 CHECKSUM_CREATED=1
 read -r CHECKSUM_VALUE _ < "$CHECKSUM_PATH"
 dr_log 'INFO' "Checksum SHA-256 criado; sha256=${CHECKSUM_VALUE}; checksum=${CHECKSUM_PATH}"
+LOCAL_BACKUP_VALID=1
+
+REMOTE_INCOMPLETE_DIRECTORY="${BACKUP_REMOTE_ROOT}/.incomplete/${RUN_ID}"
+REMOTE_MYSQL_DIRECTORY="${REMOTE_INCOMPLETE_DIRECTORY}/mysql"
+REMOTE_FINAL_DIRECTORY="${BACKUP_REMOTE_ROOT}/${RUN_ID}"
+
+dr_log 'INFO' "Início da transferência remota; destino=${BACKUP_REMOTE_USER}@${BACKUP_REMOTE_HOST}:${REMOTE_INCOMPLETE_DIRECTORY}"
+
+if dr_remote_prepare_run \
+    "$BACKUP_REMOTE_USER" \
+    "$BACKUP_REMOTE_HOST" \
+    "$BACKUP_SSH_KEY" \
+    "$BACKUP_REMOTE_ROOT" \
+    "$RUN_ID" \
+    'mysql'; then
+    :
+else
+    remote_exit_code=$?
+    dr_log 'ERROR' "Falha ao preparar o staging remoto; exit code=${remote_exit_code}"
+    exit "$remote_exit_code"
+fi
+
+if dr_scp_to_remote \
+    "$BACKUP_REMOTE_USER" \
+    "$BACKUP_REMOTE_HOST" \
+    "$BACKUP_SSH_KEY" \
+    "$REMOTE_MYSQL_DIRECTORY" \
+    "$ARTIFACT_PATH" \
+    "$CHECKSUM_PATH"; then
+    :
+else
+    remote_exit_code=$?
+    dr_log 'ERROR' "Falha na transferência remota; exit code=${remote_exit_code}"
+    exit "$remote_exit_code"
+fi
+
+if dr_remote_verify_checksum \
+    "$BACKUP_REMOTE_USER" \
+    "$BACKUP_REMOTE_HOST" \
+    "$BACKUP_SSH_KEY" \
+    "$REMOTE_MYSQL_DIRECTORY" \
+    "${MYSQL_ARTIFACT}.sha256"; then
+    :
+else
+    remote_exit_code=$?
+    dr_log 'ERROR' "Checksum remoto inválido; diretório incompleto foi preservado; exit code=${remote_exit_code}"
+    exit "$remote_exit_code"
+fi
+
+dr_log 'INFO' 'Checksum remoto validado'
+
+if dr_remote_promote_run \
+    "$BACKUP_REMOTE_USER" \
+    "$BACKUP_REMOTE_HOST" \
+    "$BACKUP_SSH_KEY" \
+    "$BACKUP_REMOTE_ROOT" \
+    "$RUN_ID" \
+    "mysql/${MYSQL_ARTIFACT}" \
+    "mysql/${MYSQL_ARTIFACT}.sha256"; then
+    :
+else
+    remote_exit_code=$?
+    dr_log 'ERROR' "Falha na promoção remota; diretório incompleto foi preservado quando possível; exit code=${remote_exit_code}"
+    exit "$remote_exit_code"
+fi
+
+dr_log 'INFO' "Promoção remota concluída; destino=${BACKUP_REMOTE_USER}@${BACKUP_REMOTE_HOST}:${REMOTE_FINAL_DIRECTORY}"
 
 exit 0

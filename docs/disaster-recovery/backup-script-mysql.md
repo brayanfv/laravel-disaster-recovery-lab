@@ -2,7 +2,9 @@
 
 ## Escopo atual
 
-`scripts/disaster-recovery/backup-mysql.sh` implementa somente a geração local do dump lógico de `teste_deploy` e de seu checksum SHA-256. Ele não transfere arquivos por SCP, não cria diretório remoto, não produz `manifest.sha256` global, não aplica retenção, não instala Cron e não executa restore.
+`scripts/disaster-recovery/backup-mysql.sh` implementa a geração local do dump lógico de `teste_deploy`, seu checksum SHA-256 e a transferência automatizada desses dois artefatos para o destino externo do laboratório. A transferência usa staging remoto `.incomplete`, valida o checksum remotamente e só promove a execução após sucesso.
+
+Ele ainda não produz `manifest.sha256` global, não aplica retenção, não cria lock global, não instala Cron e não executa restore. A transferência integrada foi validada no laboratório, mas o backup MySQL continua sendo apenas um componente da futura automação completa.
 
 O fluxo manual validado continua documentado em [mysql-backup-restore.md](mysql-backup-restore.md). Este script é a primeira implementação incremental baseada naquele fluxo.
 
@@ -51,17 +53,44 @@ O dump preserva as opções manuais já validadas:
 
 O checksum é gerado dentro do diretório `mysql/`, com caminho relativo, equivalente a `sha256sum teste_deploy.sql > teste_deploy.sql.sha256`.
 
+## Transferência externa automatizada
+
+Os parâmetros remotos são variáveis de ambiente com defaults exclusivos do laboratório atual:
+
+| Variável | Default de laboratório | Finalidade |
+|---|---|---|
+| `BACKUP_REMOTE_USER` | `teste` | Usuário SSH remoto |
+| `BACKUP_REMOTE_HOST` | `172.23.1.115` | Host atual do laboratório; deve ser parametrizado em outro ambiente |
+| `BACKUP_REMOTE_ROOT` | `/srv/backups/teste-deploy` | Raiz dos backups remotos |
+| `BACKUP_SSH_KEY` | `$HOME/.ssh/id_ed25519_backup_lab` | Chave SSH dedicada ao laboratório |
+
+Os defaults não são requisito definitivo de produção. O script valida formatos conservadores para usuário, host e raiz remota e confirma que a chave informada é legível. Ele usa explicitamente a chave dedicada, `BatchMode=yes` e `IdentitiesOnly=yes`; não desabilita a verificação de host key e não usa `StrictHostKeyChecking=no`.
+
+Após criar e validar o dump/checksum local, o fluxo remoto proposto pelo script é:
+
+1. falhar se `/srv/backups/teste-deploy/<RUN_ID>` já existir;
+2. falhar se `/srv/backups/teste-deploy/.incomplete/<RUN_ID>` já existir;
+3. criar `/srv/backups/teste-deploy/.incomplete/<RUN_ID>/mysql/`;
+4. transferir somente `teste_deploy.sql` e `teste_deploy.sql.sha256` por SCP;
+5. executar `sha256sum -c teste_deploy.sql.sha256` no diretório remoto `mysql/`;
+6. confirmar, ainda em `.incomplete`, a existência de todos os artefatos esperados;
+7. promover por `mv`, no destino remoto, de `.incomplete/<RUN_ID>` para `<RUN_ID>`; se o `mv` retornar sucesso, a promoção é concluída.
+
+Somente o diretório promovido em `BACKUP_REMOTE_ROOT/<RUN_ID>` será um backup remoto válido. Se o `mv` falhar, a promoção falha e o diretório `.incomplete` permanece para diagnóstico; ele não é restore point válido. Em falha durante preparação, SCP ou checksum remoto, a promoção também não ocorre. O dump local já validado pode permanecer nessas situações.
+
 ## Segurança e falhas
 
 - O script usa Bash, `set -Eeuo pipefail` e `umask 077`.
 - `common.sh` fornece somente helpers compartilháveis de `RUN_ID`, diretórios, logs, dependências, checksum e duração; ele não contém lógica de MySQL.
+- Os helpers de SSH/SCP, criação de staging remoto, verificação remota de checksum e promoção recebem parâmetros genéricos; nomes de banco e artefatos MySQL permanecem em `backup-mysql.sh`.
 - As permissões privadas de novos diretórios, logs e artefatos dependem do `umask 077` definido pelo script executor.
-- Valida `mysqldump`, `sha256sum`, `stat` e `tee` antes do dump.
+- Valida `mysqldump`, `sha256sum`, `stat`, `tee`, `ssh` e `scp` antes do dump.
 - Prepara e valida o log antes de criar o staging específico do `RUN_ID`, evitando diretórios de execução vazios se a infraestrutura de logs falhar.
 - O dump é escrito inicialmente em arquivo parcial oculto e somente é promovido ao nome final após sucesso do `mysqldump`.
 - Se o dump ou a geração do checksum falhar, somente os artefatos criados pela execução atual são removidos para não parecerem um backup válido; o log de diagnóstico é preservado e o script retorna código diferente de zero. Artefatos preexistentes nunca são removidos por uma tentativa com o mesmo `RUN_ID`.
 - O arquivo de log nunca é sobrescrito para evitar misturar duas execuções com o mesmo `RUN_ID`.
 - Logs registram etapas, caminhos, valor SHA-256, duração e códigos de saída, mas nunca passwords, conteúdo de `.env`, chaves ou outros secrets.
+- O resultado `SUCCESS` só pode ser registrado depois do dump/checksum local, transferência, checksum remoto e promoção remota bem-sucedidos.
 
 ## Validação real no laboratório
 
@@ -79,6 +108,39 @@ O primeiro backup local automatizado validado usou o `RUN_ID` `2026-09-18_172438
 | Resultado final | `Backup MySQL SUCCESS` |
 
 Isso valida a geração local do dump, do SHA-256 e do log pelo script. Não valida transferência externa, promoção remota, retenção ou restore automatizado.
+
+### Falha real de conectividade externa
+
+Uma execução com `RUN_ID` `2026-09-22_135938` alcançou com sucesso o backup local, mas falhou durante a preparação remota porque a máquina externa estava inacessível/desligada.
+
+- O SSH retornou `No route to host` para a porta 22 do host remoto.
+- O backup local já criado foi preservado.
+- A preparação remota falhou e nenhuma promoção remota foi declarada.
+- O script registrou `Backup MySQL FAILED` e retornou exit code `255`.
+
+Depois que a máquina externa voltou, conectividade por ping e SSH com a chave dedicada foram confirmadas antes da nova execução completa. Esse resultado valida o comportamento *fail-fast* remoto: indisponibilidade externa não é convertida em sucesso local nem em restore point remoto válido.
+
+### Sucesso completo com transferência externa
+
+A execução completa com `RUN_ID` `2026-09-22_140816` terminou com `Backup MySQL SUCCESS`.
+
+| Etapa | Resultado validado |
+|---|---|
+| Staging remoto | `.incomplete/2026-09-22_140816/mysql` criado no destino externo |
+| Transferência | `teste_deploy.sql` e `teste_deploy.sql.sha256` enviados |
+| Integridade remota | `sha256sum -c teste_deploy.sql.sha256` retornou `teste_deploy.sql: SUCESSO` |
+| Promoção | `.incomplete/2026-09-22_140816` promovido para `2026-09-22_140816` |
+| Limpeza lógica | O diretório `.incomplete/2026-09-22_140816` deixou de existir após o `mv` bem-sucedido |
+| Validação final | O checksum foi executado novamente no diretório promovido e retornou `teste_deploy.sql: SUCESSO` |
+
+Os artefatos remotos finais são:
+
+```text
+/srv/backups/teste-deploy/2026-09-22_140816/mysql/teste_deploy.sql
+/srv/backups/teste-deploy/2026-09-22_140816/mysql/teste_deploy.sql.sha256
+```
+
+Essa validação confirma o fluxo automatizado MySQL de dump/checksum local, staging remoto `.incomplete`, SCP, checksum remoto, promoção e validação final no diretório promovido. O diretório final é um restore point válido para esse componente; ele não representa ainda um backup completo do sistema.
 
 ### Falha proposital e cleanup
 
@@ -100,7 +162,6 @@ Esses diretórios foram preservados como evidência. O script foi refinado para 
 
 ## Limitações pendentes
 
-- Não há transferência para o destino externo ou promoção por `.incomplete/`.
 - Não há `manifest.sha256` da execução completa.
 - Não há orquestrador `backup.sh`, lock global, retenção, monitoramento, Cron ou restore automatizado.
 - A estratégia de gestão de secrets ainda é provisória; o arquivo de opções precisa ser preparado e protegido fora do repositório.
