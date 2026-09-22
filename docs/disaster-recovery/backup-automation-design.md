@@ -4,7 +4,7 @@
 
 Este documento define o desenho inicial da futura automação de backup do laboratório `TESTE-DEPLOY`. Ele se baseia nos fluxos manuais já validados para MySQL, MongoDB, Redis, `storage/app/private` e `portainer_data`.
 
-Este é um documento de design. Nenhum script, agendamento, retenção automática, transferência automática ou restore automatizado é criado por ele. Os procedimentos manuais documentados continuam sendo a referência validada até que a automação seja implementada e testada.
+Este é um documento de design. A primeira implementação incremental — backup local de MySQL — já existe e teve testes reais de sucesso e falha documentados em [backup-script-mysql.md](backup-script-mysql.md). Ainda não há agendamento, transferência automática, retenção automática ou restore automatizado. Os procedimentos manuais documentados continuam sendo a referência para os demais componentes.
 
 ## Princípios
 
@@ -36,7 +36,7 @@ scripts/disaster-recovery/
 - Quando chamado por `backup.sh`, cada script de componente deverá usar o `RUN_ID` e os parâmetros de destino fornecidos pelo orquestrador, preservando a organização da execução completa.
 - Quando executado isoladamente, um script de componente poderá gerar um `RUN_ID` próprio. Esse resultado será um artefato isolado do componente, não uma execução completa válida do sistema.
 
-Os arquivos acima são apenas uma proposta; eles não existem nesta etapa.
+No estado atual, existem apenas `backup-mysql.sh` e `lib/common.sh`. `backup.sh`, os scripts dos demais componentes e os recursos de transferência, retenção e restore ainda são proposta e não existem.
 
 ## Identificador e estrutura de uma execução
 
@@ -164,6 +164,8 @@ Logs não podem registrar passwords, conteúdo de `.env`, chaves privadas, setup
 
 Os scripts futuros não podem ter passwords hardcoded. A estratégia para fornecer secrets de MySQL, MongoDB e demais recursos ainda precisa ser definida antes da implementação definitiva; ela deverá evitar valores no histórico do shell, nos argumentos expostos e nos logs.
 
+Como decisão concreta da primeira implementação incremental, o backup MySQL usa `MYSQL_BACKUP_DEFAULTS_FILE`: uma variável de ambiente que aponta para um arquivo de opções MySQL protegido, externo ao repositório. O script não lê `.env`, não cria esse arquivo e valida que ele pertence ao usuário executor e não é legível por grupo ou outros. Essa é uma solução provisória apenas para o fluxo MySQL local; ela não define ainda a estratégia geral de gestão de secrets.
+
 O transporte inicial proposto permanece SSH/SCP, porque já foi validado para o laboratório com a chave dedicada `~/.ssh/id_ed25519_backup_lab`. A chave não deve ser copiada para o repositório, staging, destino de backup ou documentação além do seu caminho e finalidade. Host, usuário, diretório remoto e caminho da chave deverão ser parametrizáveis, pois o endereço atual do destino pode mudar.
 
 ## Consistência por componente
@@ -222,4 +224,4 @@ Os procedimentos manuais validados permanecem a referência para MySQL, MongoDB,
 
 ## Situação atual
 
-O desenho da automação está definido para o laboratório, mas sua implementação não começou. Não existem scripts de backup, Cron de backup, retenção automática, logs automatizados, monitoramento ou restore automatizado. O disaster recovery geral permanece pendente.
+O desenho da automação está definido para o laboratório. O backup local de MySQL já foi implementado e validado em cenário de sucesso e em falha proposital, incluindo dump, checksum, log e cleanup de artefatos parciais. Não há ainda transferência externa automatizada, `.incomplete` remoto, `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, scripts dos demais componentes ou restore automatizado. O disaster recovery geral permanece pendente.
