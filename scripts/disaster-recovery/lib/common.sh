@@ -73,6 +73,27 @@ dr_create_sha256() {
     )
 }
 
+dr_validate_private_file() {
+    local file_path="$1"
+    local file_mode
+
+    if [[ ! -f "$file_path" || ! -r "$file_path" ]]; then
+        printf 'Arquivo privado não é legível.\n' >&2
+        return 1
+    fi
+
+    if [[ ! -O "$file_path" ]]; then
+        printf 'Arquivo privado deve pertencer ao usuário executor.\n' >&2
+        return 1
+    fi
+
+    file_mode="$(stat -c '%a' -- "$file_path")"
+    if (( (8#${file_mode} & 8#077) != 0 )); then
+        printf 'Arquivo privado não pode ter permissões para grupo ou outros.\n' >&2
+        return 1
+    fi
+}
+
 dr_validate_ssh_backup_configuration() {
     local remote_user="$1"
     local remote_host="$2"

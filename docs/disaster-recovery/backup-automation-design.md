@@ -4,7 +4,7 @@
 
 Este documento define o desenho inicial da futura automação de backup do laboratório `TESTE-DEPLOY`. Ele se baseia nos fluxos manuais já validados para MySQL, MongoDB, Redis, `storage/app/private` e `portainer_data`.
 
-Este é um documento de design. A primeira implementação incremental — backup MySQL com dump/checksum local e fluxo de transferência remota `.incomplete` — já existe e foi validada em sucesso e falha de conectividade. As evidências estão em [backup-script-mysql.md](backup-script-mysql.md). Ainda não há agendamento, retenção automática ou restore automatizado. Os procedimentos manuais documentados continuam sendo a referência para os demais componentes.
+Este é um documento de design. As implementações incrementais de MySQL e MongoDB já existem e foram validadas em execução real isolada, incluindo staging local, checksum, transferência remota `.incomplete`, validação remota e promoção. As evidências estão em [backup-script-mysql.md](backup-script-mysql.md) e [backup-script-mongodb.md](backup-script-mongodb.md). Ainda não há agendamento, retenção automática ou restore automatizado. Os procedimentos manuais documentados continuam sendo a referência para os demais componentes.
 
 ## Princípios
 
@@ -36,7 +36,7 @@ scripts/disaster-recovery/
 - Quando chamado por `backup.sh`, cada script de componente deverá usar o `RUN_ID` e os parâmetros de destino fornecidos pelo orquestrador, preservando a organização da execução completa.
 - Quando executado isoladamente, um script de componente poderá gerar um `RUN_ID` próprio. Esse resultado será um artefato isolado do componente, não uma execução completa válida do sistema.
 
-No estado atual, existem apenas `backup-mysql.sh` e `lib/common.sh`. `backup.sh`, os scripts dos demais componentes e os recursos de retenção e restore ainda são proposta e não existem.
+No estado atual, existem `backup-mysql.sh`, `backup-mongodb.sh` e `lib/common.sh`. `backup.sh`, os scripts de Redis, Laravel storage e Portainer, além dos recursos de retenção e restore, ainda são proposta e não existem.
 
 ## Identificador e estrutura de uma execução
 
@@ -166,6 +166,8 @@ Os scripts futuros não podem ter passwords hardcoded. A estratégia para fornec
 
 Como decisão concreta da primeira implementação incremental, o backup MySQL usa `MYSQL_BACKUP_DEFAULTS_FILE`: uma variável de ambiente que aponta para um arquivo de opções MySQL protegido, externo ao repositório. O script não lê `.env`, não cria esse arquivo e valida que ele pertence ao usuário executor e não é legível por grupo ou outros. Essa é uma solução provisória apenas para o fluxo MySQL local; ela não define ainda a estratégia geral de gestão de secrets.
 
+Para o incremento MongoDB, a decisão equivalente é `MONGODB_BACKUP_PASSWORD_FILE`: arquivo externo protegido, pertencente ao usuário executor e sem permissões para grupo ou outros. O script lê a senha somente em memória, cria por stdin uma configuração YAML temporária privada dentro do container e usa `mongodump --config`, sem senha em argv. A configuração é removida após o dump e pelo cleanup em falhas. Esse fluxo foi validado em execução real isolada. A decisão ainda é provisória e não estabelece uma solução geral de secrets.
+
 O transporte inicial proposto permanece SSH/SCP, porque já foi validado para o laboratório com a chave dedicada `~/.ssh/id_ed25519_backup_lab`. A chave não deve ser copiada para o repositório, staging, destino de backup ou documentação além do seu caminho e finalidade. Host, usuário, diretório remoto e caminho da chave deverão ser parametrizáveis, pois o endereço atual do destino pode mudar.
 
 ## Consistência por componente
@@ -173,7 +175,7 @@ O transporte inicial proposto permanece SSH/SCP, porque já foi validado para o 
 | Componente | Procedimento proposto | Consideração de consistência |
 |---|---|---|
 | MySQL | `mysqldump` com `--single-transaction`, `--routines`, `--triggers`, `--events` e `--no-tablespaces` | Método lógico manual validado; `--no-tablespaces` foi necessário devido à ausência do privilégio `PROCESS` da conta da aplicação. |
-| MongoDB | `mongodump` em archive, com autenticação sem password hardcoded | O archive lógico manual foi validado; o tratamento temporário e seguro da senha ainda precisa virar uma decisão de automação. |
+| MongoDB | `mongodump` em archive, com autenticação sem password hardcoded | O archive lógico e a automação isolada foram validados com configuração YAML temporária e `mongodump --config`; a gestão definitiva de secrets continua pendente. |
 | Laravel storage | Archive de `storage/app/private` | No laboratório não foi necessário parar a aplicação. Em produção, a consistência deve ser avaliada segundo o tipo, volume e mutabilidade dos arquivos. |
 | Redis | `SAVE`, parada controlada, cópia do volume, reinício obrigatório por cleanup | O volume com AOF foi restaurado com sucesso. A falha durante o archive não pode impedir o reinício. Redis é tratado como estado persistente apenas neste laboratório; em produção seu papel decidirá se o backup é necessário. |
 | Portainer | Parada controlada, cópia de `portainer_data`, reinício obrigatório por cleanup | O restore funcional do estado configurado foi validado. A falha durante o archive não pode impedir o reinício. |
@@ -224,4 +226,4 @@ Os procedimentos manuais validados permanecem a referência para MySQL, MongoDB,
 
 ## Situação atual
 
-O desenho da automação está definido para o laboratório. O backup MySQL foi implementado e validado em sucesso local, falha proposital de dump, falha real de conectividade externa e sucesso completo com staging `.incomplete`, checksum remoto e promoção. Não há `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, scripts dos demais componentes ou restore automatizado. O disaster recovery geral permanece pendente.
+O desenho da automação está definido para o laboratório. Os backups isolados de MySQL e MongoDB foram implementados e validados ponta a ponta com staging `.incomplete`, checksum remoto e promoção; o MongoDB também validou o uso da configuração temporária `--config` sem senha em argv e a remoção dos temporários do container. Não há `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, scripts de Redis/Laravel storage/Portainer ou restore automatizado. O hardening uniforme das permissões remotas dos artefatos MongoDB permanece pendente. O disaster recovery geral permanece pendente.
