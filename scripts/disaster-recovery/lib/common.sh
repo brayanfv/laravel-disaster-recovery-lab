@@ -20,6 +20,20 @@ dr_resolve_run_id() {
     printf '%s\n' "$candidate"
 }
 
+dr_resolve_orchestration_mode() {
+    local candidate="${DR_ORCHESTRATED:-0}"
+
+    case "$candidate" in
+        0|1)
+            printf '%s\n' "$candidate"
+            ;;
+        *)
+            printf 'DR_ORCHESTRATED inválido: use 0 ou 1.\n' >&2
+            return 1
+            ;;
+    esac
+}
+
 dr_require_commands() {
     local command_name
 
@@ -70,6 +84,44 @@ dr_create_sha256() {
         cd -- "$directory"
         sha256sum -- "$artifact_name" > "$temporary_checksum"
         mv -- "$temporary_checksum" "$checksum_name"
+    )
+}
+
+dr_create_manifest_sha256() {
+    local run_directory="$1"
+    local manifest_name="$2"
+    shift 2
+    local temporary_manifest=".${manifest_name}.partial"
+    local artifact_path
+
+    if (( $# == 0 )); then
+        printf 'O manifesto exige ao menos um artefato.\n' >&2
+        return 1
+    fi
+
+    dr_validate_relative_path "$manifest_name"
+    for artifact_path in "$@"; do
+        dr_validate_relative_path "$artifact_path"
+    done
+
+    if [[ -e "${run_directory}/${manifest_name}" || -e "${run_directory}/${temporary_manifest}" ]]; then
+        printf 'Manifesto local já existe e não será sobrescrito.\n' >&2
+        return 1
+    fi
+
+    (
+        cd -- "$run_directory"
+
+        for artifact_path in "$@"; do
+            [[ -f "$artifact_path" ]]
+        done
+
+        if ! sha256sum -- "$@" > "$temporary_manifest"; then
+            rm -f -- "$temporary_manifest"
+            return 1
+        fi
+
+        mv -- "$temporary_manifest" "$manifest_name"
     )
 }
 
@@ -213,6 +265,85 @@ fi
 
 mkdir -p -- "${incomplete_directory}/${component_directory}"
 REMOTE_COMMAND
+}
+
+dr_remote_prepare_orchestrated_run() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_root="$4"
+    local run_id="$5"
+
+    dr_ssh "$remote_user" "$remote_host" "$ssh_key" bash -s -- "$remote_root" "$run_id" <<'REMOTE_COMMAND'
+set -Eeuo pipefail
+
+remote_root="$1"
+run_id="$2"
+final_directory="${remote_root}/${run_id}"
+incomplete_directory="${remote_root}/.incomplete/${run_id}"
+
+if [[ -e "$final_directory" ]]; then
+    printf 'Diretório remoto final já existe: %s\n' "$final_directory" >&2
+    exit 1
+fi
+
+if [[ -e "$incomplete_directory" ]]; then
+    printf 'Diretório remoto incompleto já existe: %s\n' "$incomplete_directory" >&2
+    exit 1
+fi
+
+mkdir -p -- "$incomplete_directory"
+REMOTE_COMMAND
+}
+
+dr_remote_prepare_orchestrated_component() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_root="$4"
+    local run_id="$5"
+    local component_directory="$6"
+
+    dr_validate_relative_path "$component_directory"
+
+    dr_ssh "$remote_user" "$remote_host" "$ssh_key" bash -s -- "$remote_root" "$run_id" "$component_directory" <<'REMOTE_COMMAND'
+set -Eeuo pipefail
+
+remote_root="$1"
+run_id="$2"
+component_directory="$3"
+final_directory="${remote_root}/${run_id}"
+incomplete_directory="${remote_root}/.incomplete/${run_id}"
+remote_component_directory="${incomplete_directory}/${component_directory}"
+
+[[ ! -e "$final_directory" ]]
+[[ -d "$incomplete_directory" ]]
+
+if [[ -e "$remote_component_directory" ]]; then
+    printf 'Diretório remoto do componente já existe: %s\n' "$remote_component_directory" >&2
+    exit 1
+fi
+
+mkdir -- "$remote_component_directory"
+REMOTE_COMMAND
+}
+
+dr_remote_prepare_component() {
+    local orchestrated="$1"
+    shift
+
+    case "$orchestrated" in
+        0)
+            dr_remote_prepare_run "$@"
+            ;;
+        1)
+            dr_remote_prepare_orchestrated_component "$@"
+            ;;
+        *)
+            printf 'Modo de orquestração inválido.\n' >&2
+            return 1
+            ;;
+    esac
 }
 
 dr_remote_verify_checksum() {

@@ -104,6 +104,13 @@ cleanup() {
 
 trap cleanup EXIT
 
+DR_ORCHESTRATED="$(dr_resolve_orchestration_mode)" || exit 1
+if [[ "$DR_ORCHESTRATED" == '1' && -z "${RUN_ID:-}" ]]; then
+    printf 'RUN_ID deve ser fornecido quando DR_ORCHESTRATED=1.\n' >&2
+    exit 1
+fi
+readonly DR_ORCHESTRATED
+
 RUN_ID="$(dr_resolve_run_id)" || exit 1
 readonly RUN_ID
 
@@ -117,7 +124,7 @@ dr_init_log "$LOG_FILE_PATH" || exit 1
 DR_LOG_FILE="$LOG_FILE_PATH"
 readonly DR_LOG_FILE
 
-dr_log 'INFO' "Pré-validação do backup Redis iniciada; RUN_ID=${RUN_ID}"
+dr_log 'INFO' "Pré-validação do backup Redis iniciada; RUN_ID=${RUN_ID}; orchestrated=${DR_ORCHESTRATED}"
 
 if ! dr_require_commands docker sha256sum stat tee chmod ssh scp; then
     dr_log 'ERROR' 'Dependência obrigatória ausente: docker, sha256sum, stat, tee, chmod, ssh ou scp'
@@ -274,7 +281,8 @@ REMOTE_FINAL_DIRECTORY="${BACKUP_REMOTE_ROOT}/${RUN_ID}"
 
 dr_log 'INFO' "Início da transferência remota; destino=${BACKUP_REMOTE_USER}@${BACKUP_REMOTE_HOST}:${REMOTE_INCOMPLETE_DIRECTORY}"
 
-if dr_remote_prepare_run \
+if dr_remote_prepare_component \
+    "$DR_ORCHESTRATED" \
     "$BACKUP_REMOTE_USER" \
     "$BACKUP_REMOTE_HOST" \
     "$BACKUP_SSH_KEY" \
@@ -333,21 +341,25 @@ fi
 
 dr_log 'INFO' 'Checksum remoto validado'
 
-if dr_remote_promote_run \
-    "$BACKUP_REMOTE_USER" \
-    "$BACKUP_REMOTE_HOST" \
-    "$BACKUP_SSH_KEY" \
-    "$BACKUP_REMOTE_ROOT" \
-    "$RUN_ID" \
-    "redis/${REDIS_ARTIFACT}" \
-    "redis/${REDIS_ARTIFACT}.sha256"; then
-    :
+if [[ "$DR_ORCHESTRATED" == '1' ]]; then
+    dr_log 'INFO' 'Componente Redis concluído no staging remoto; promoção final será executada pelo orquestrador'
 else
-    remote_exit_code=$?
-    dr_log 'ERROR' "Falha na promoção remota; diretório incompleto foi preservado; exit code=${remote_exit_code}"
-    exit "$remote_exit_code"
-fi
+    if dr_remote_promote_run \
+        "$BACKUP_REMOTE_USER" \
+        "$BACKUP_REMOTE_HOST" \
+        "$BACKUP_SSH_KEY" \
+        "$BACKUP_REMOTE_ROOT" \
+        "$RUN_ID" \
+        "redis/${REDIS_ARTIFACT}" \
+        "redis/${REDIS_ARTIFACT}.sha256"; then
+        :
+    else
+        remote_exit_code=$?
+        dr_log 'ERROR' "Falha na promoção remota; diretório incompleto foi preservado; exit code=${remote_exit_code}"
+        exit "$remote_exit_code"
+    fi
 
-dr_log 'INFO' "Promoção remota concluída; destino=${BACKUP_REMOTE_USER}@${BACKUP_REMOTE_HOST}:${REMOTE_FINAL_DIRECTORY}"
+    dr_log 'INFO' "Promoção remota concluída; destino=${BACKUP_REMOTE_USER}@${BACKUP_REMOTE_HOST}:${REMOTE_FINAL_DIRECTORY}"
+fi
 
 exit 0
