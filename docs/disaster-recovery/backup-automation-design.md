@@ -4,7 +4,7 @@
 
 Este documento define o desenho inicial da futura automação de backup do laboratório `TESTE-DEPLOY`. Ele se baseia nos fluxos manuais já validados para MySQL, MongoDB, Redis, `storage/app/private` e `portainer_data`.
 
-Este é um documento de design. As implementações incrementais de MySQL, MongoDB, Redis e Laravel storage já existem e foram validadas em execução real isolada. MySQL e MongoDB validaram staging local, checksum, transferência remota `.incomplete`, validação remota e promoção; Redis também validou `SAVE`, parada controlada, archive somente-leitura do volume e reinício obrigatório; Laravel storage validou archive relativo, restore isolado e recuperação do marcador persistente. As evidências estão em [backup-script-mysql.md](backup-script-mysql.md), [backup-script-mongodb.md](backup-script-mongodb.md), [backup-script-redis.md](backup-script-redis.md) e [backup-script-laravel-storage.md](backup-script-laravel-storage.md). Ainda não há agendamento, retenção automática ou restore automatizado. Os procedimentos manuais documentados continuam sendo a referência para os demais componentes.
+Este é um documento de design. As implementações incrementais de MySQL, MongoDB, Redis, Laravel storage e Portainer já existem e foram validadas em execução real isolada. MySQL e MongoDB validaram staging local, checksum, transferência remota `.incomplete`, validação remota e promoção; Redis também validou `SAVE`, parada controlada, archive somente-leitura do volume e reinício obrigatório; Laravel storage validou archive relativo, restore isolado e recuperação do marcador persistente; e Portainer validou parada controlada, archive somente-leitura sem Docker socket, restart, permissões, transferência, promoção e restore isolado do conteúdo do volume. As evidências estão em [backup-script-mysql.md](backup-script-mysql.md), [backup-script-mongodb.md](backup-script-mongodb.md), [backup-script-redis.md](backup-script-redis.md), [backup-script-laravel-storage.md](backup-script-laravel-storage.md) e [backup-script-portainer.md](backup-script-portainer.md). Ainda não há agendamento, retenção automática ou restore automatizado. Os procedimentos manuais documentados continuam sendo a referência para os demais componentes.
 
 ## Princípios
 
@@ -36,7 +36,7 @@ scripts/disaster-recovery/
 - Quando chamado por `backup.sh`, cada script de componente deverá usar o `RUN_ID` e os parâmetros de destino fornecidos pelo orquestrador, preservando a organização da execução completa.
 - Quando executado isoladamente, um script de componente poderá gerar um `RUN_ID` próprio. Esse resultado será um artefato isolado do componente, não uma execução completa válida do sistema.
 
-No estado atual, existem `backup-mysql.sh`, `backup-mongodb.sh`, `backup-redis.sh`, `backup-laravel-storage.sh` e `lib/common.sh`. `backup.sh`, o script de Portainer, além dos recursos de retenção e restore, ainda são proposta e não existem.
+No estado atual, existem `backup-mysql.sh`, `backup-mongodb.sh`, `backup-redis.sh`, `backup-laravel-storage.sh`, `backup-portainer.sh` e `lib/common.sh`. `backup.sh`, além dos recursos de retenção e restore, ainda são proposta e não existem. Os cinco scripts de componente foram validados em execução real isolada.
 
 ## Identificador e estrutura de uma execução
 
@@ -122,7 +122,7 @@ Arquivos `.sha256` individuais poderão continuar existindo para validação iso
 
 O manifesto permite validar a execução como conjunto no staging e novamente no destino externo. SHA-256 confirma integridade dos bytes transferidos; ele não substitui uma cópia externa, não fornece criptografia e não elimina a necessidade de um restore de teste.
 
-Como hardening comum implementado nos scripts isolados de MySQL, MongoDB, Redis e Laravel storage, cada artefato e seu checksum devem terminar em modo `600` tanto no staging local quanto no diretório remoto `.incomplete`, antes da validação de checksum e promoção. A aplicação é explícita, sem `chmod` recursivo: somente os arquivos esperados recebem a permissão. As execuções MongoDB `2026-09-22_163621`, Redis `2026-09-22_171547` e Laravel storage `2026-09-22_172710` validaram os quatro modos — artefato/checksum local e artefato/checksum remoto — em `600`, além da sequência SCP → `chmod 600` remoto → checksum → promoção. A política comum está validada; o fluxo MySQL ainda não teve uma execução específica com esse hardening.
+Como hardening comum implementado nos scripts isolados de MySQL, MongoDB, Redis, Laravel storage e Portainer, cada artefato e seu checksum devem terminar em modo `600` tanto no staging local quanto no diretório remoto `.incomplete`, antes da validação de checksum e promoção. A aplicação é explícita, sem `chmod` recursivo: somente os arquivos esperados recebem a permissão. As execuções MongoDB `2026-09-22_163621`, Redis `2026-09-22_171547`, Laravel storage `2026-09-22_172710` e Portainer `2026-09-24_134725` validaram os quatro modos — artefato/checksum local e artefato/checksum remoto — em `600`, além da sequência SCP → `chmod 600` remoto → checksum → promoção. A política comum está validada; a validação específica deste hardening em MySQL permanece pendente.
 
 ## Falhas, logs e resultado
 
@@ -147,7 +147,7 @@ Redis e Portainer devem ser reiniciados obrigatoriamente quando tiverem sido par
 stop -> tentativa de backup -> falha no tar -> cleanup/restart obrigatório -> FAILED -> exit code diferente de zero
 ```
 
-O reinício não transforma uma execução falha em válida: ele apenas restaura a disponibilidade do componente antes da saída com falha. O script Redis implementa esse comportamento com `trap`/cleanup e a execução real validou o reinício bem-sucedido após a parada controlada; o ramo de cleanup sob falha ainda requer teste específico. Portainer ainda exige implementação específica.
+O reinício não transforma uma execução falha em válida: ele apenas restaura a disponibilidade do componente antes da saída com falha. Os scripts Redis e Portainer implementam esse comportamento com `trap`/cleanup. Redis validou o reinício bem-sucedido após a parada controlada. No Portainer, a falha de archive do `RUN_ID` `2026-09-24_133313` acionou o cleanup e reiniciou o serviço, e a execução `2026-09-24_134725` validou o fluxo de sucesso; outros cenários de falha seguem sem injeção específica.
 
 ### Logs
 
@@ -180,7 +180,7 @@ O transporte inicial proposto permanece SSH/SCP, porque já foi validado para o 
 | MongoDB | `mongodump` em archive, com autenticação sem password hardcoded | O archive lógico e a automação isolada foram validados com configuração YAML temporária e `mongodump --config`; a gestão definitiva de secrets continua pendente. |
 | Laravel storage | Archive de `storage/app/private` com arquivo parcial, seguido de checksum e transferência remota | O script isolado foi validado com archive relativo, marcador persistente e restore isolado. A consistência é por filesystem, sem snapshot; arquivos modificados durante o tar exigem avaliação conforme a produção. Permissões e ownership devem ser validados no destino durante o restore. |
 | Redis | `SAVE`, parada controlada, archive somente-leitura do volume, reinício obrigatório por cleanup | O script isolado foi validado ponta a ponta, incluindo restart bem-sucedido, marcador após restart, checksum, permissões `600`, staging `.incomplete` e promoção. O caminho de cleanup sob falha ainda requer teste específico. Redis é tratado como estado persistente apenas neste laboratório; em produção seu papel decidirá se o backup é necessário. |
-| Portainer | Parada controlada, cópia de `portainer_data`, reinício obrigatório por cleanup | O restore funcional do estado configurado foi validado. A falha durante o archive não pode impedir o reinício. |
+| Portainer | Parada controlada, archive somente-leitura de `portainer_data`, reinício obrigatório por cleanup | O script isolado foi validado em `2026-09-24_134725` sem montar `docker.sock` no container auxiliar: archive, restart, checksums, permissões `600`, staging `.incomplete`, promoção e extração isolada de `portainer.db` foram confirmados. A falha de archive anterior confirmou o cleanup/restart. A tag `latest` continua pendente de fixação. |
 
 ## Ordem futura de backup
 
@@ -219,7 +219,7 @@ Os procedimentos manuais validados permanecem a referência para MySQL, MongoDB,
 - Definir a fonte e o manuseio seguro dos secrets usados pelos comandos automatizados.
 - Definir formato final de logs, nível de detalhamento, rotação e monitoramento/alertas.
 - Definir parâmetros configuráveis para destino SSH, diretório remoto, chave e componentes selecionados.
-- Implementar e testar lock, tratamento de falhas e reinício garantido de Redis e Portainer.
+- Implementar e testar lock global e os demais cenários de falha ainda não injetados individualmente.
 - Implementar nomenclatura, manifest, verificação local/remota e retenção por execução completa.
 - Definir o agendamento Cron somente depois da validação dos scripts.
 - Definir o escopo de uploads públicos e de outros dados persistentes da aplicação.
@@ -228,4 +228,4 @@ Os procedimentos manuais validados permanecem a referência para MySQL, MongoDB,
 
 ## Situação atual
 
-O desenho da automação está definido para o laboratório. Os backups isolados de MySQL, MongoDB, Redis e Laravel storage foram implementados e validados ponta a ponta com staging `.incomplete`, checksum remoto e promoção; o MongoDB também validou o uso da configuração temporária `--config` sem senha em argv e a remoção dos temporários do container. Redis validou `SAVE`, parada controlada, archive somente-leitura, restart bem-sucedido, marcador após restart e permissões `600` para artefato/checksum local e remoto; o caminho de cleanup sob falha ainda requer teste específico. Laravel storage validou archive relativo, checksum, permissões `600`, promoção e restore isolado de `DR_TEST_STORAGE_001.txt`; permissões e ownership do destino ainda devem ser verificados no runbook. Não há `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento, script de Portainer ou restore automatizado. O disaster recovery geral permanece pendente.
+O desenho da automação está definido para o laboratório. Os backups isolados de MySQL, MongoDB, Redis, Laravel storage e Portainer foram implementados e validados ponta a ponta com staging `.incomplete`, checksum remoto e promoção; o MongoDB também validou o uso da configuração temporária `--config` sem senha em argv e a remoção dos temporários do container. Redis validou `SAVE`, parada controlada, archive somente-leitura, restart bem-sucedido, marcador após restart e permissões `600` para artefato/checksum local e remoto; o caminho de cleanup sob falha ainda requer teste específico. Laravel storage validou archive relativo, checksum, permissões `600`, promoção e restore isolado de `DR_TEST_STORAGE_001.txt`; permissões e ownership do destino ainda devem ser verificados no runbook. Portainer validou a imagem auxiliar `alpine:3.20`, montagem somente-leitura de `portainer_data` sem Docker socket, restart obrigatório, permissões `600`, fluxo remoto e extração isolada de `portainer.db`; a falha anterior de archive também confirmou o cleanup/restart. Não há `manifest.sha256` global, orquestrador, retenção, lock global, Cron de backup, monitoramento ou restore automatizado. O disaster recovery geral permanece pendente.
