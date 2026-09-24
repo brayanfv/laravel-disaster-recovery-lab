@@ -13,6 +13,7 @@ readonly MONGODB_ARTIFACT='mongodb/teste_deploy_lab.archive'
 readonly REDIS_ARTIFACT='redis/redis_data.tar.gz'
 readonly LARAVEL_STORAGE_ARTIFACT='laravel-storage/laravel-storage.tar.gz'
 readonly PORTAINER_ARTIFACT='portainer/portainer_data.tar.gz'
+readonly BACKUP_LOCK_FILE="${DR_STAGING_ROOT}/.backup.lock"
 readonly -a MANIFEST_ARTIFACTS=(
     "$MYSQL_ARTIFACT"
     "$MONGODB_ARTIFACT"
@@ -46,6 +47,9 @@ LOG_FILE_PATH=''
 RUN_DIRECTORY=''
 REMOTE_INCOMPLETE_DIRECTORY=''
 REMOTE_FINAL_DIRECTORY=''
+BACKUP_RETENTION_COUNT=''
+LOCK_FD=''
+LOCK_ACQUIRED=0
 
 cleanup() {
     local exit_code=$?
@@ -56,6 +60,10 @@ cleanup() {
         fi
     elif [[ -n "${DR_LOG_FILE:-}" ]]; then
         dr_log 'INFO' "Backup geral SUCCESS; duration=$(dr_elapsed_seconds "$STARTED_AT")s"
+    fi
+
+    if (( LOCK_ACQUIRED )) && [[ -n "${LOCK_FD:-}" ]]; then
+        flock -u "$LOCK_FD" >/dev/null 2>&1 || true
     fi
 
     exit "$exit_code"
@@ -83,10 +91,16 @@ readonly DR_LOG_FILE
 
 dr_log 'INFO' "Pré-validação do backup geral iniciada; RUN_ID=${RUN_ID}"
 
-if ! dr_require_commands sha256sum chmod ssh scp; then
-    dr_log 'ERROR' 'Dependência obrigatória ausente: sha256sum, chmod, ssh ou scp'
+if ! dr_require_commands sha256sum chmod ssh scp flock; then
+    dr_log 'ERROR' 'Dependência obrigatória ausente: sha256sum, chmod, ssh, scp ou flock'
     exit 1
 fi
+
+BACKUP_RETENTION_COUNT="$(dr_resolve_retention_count)" || {
+    dr_log 'ERROR' 'BACKUP_RETENTION_COUNT deve ser um inteiro entre 1 e 365'
+    exit 1
+}
+readonly BACKUP_RETENTION_COUNT
 
 if ! dr_validate_ssh_backup_configuration \
     "$BACKUP_REMOTE_USER" \
@@ -96,6 +110,29 @@ if ! dr_validate_ssh_backup_configuration \
     dr_log 'ERROR' 'Configuração de transferência SSH inválida ou chave indisponível'
     exit 1
 fi
+
+if ! dr_mkdir_private "$DR_STAGING_ROOT"; then
+    dr_log 'ERROR' 'Não foi possível preparar o diretório de staging para o lock global'
+    exit 1
+fi
+
+if ! exec {LOCK_FD}> "$BACKUP_LOCK_FILE"; then
+    dr_log 'ERROR' "Não foi possível abrir o arquivo de lock global: ${BACKUP_LOCK_FILE}"
+    exit 1
+fi
+
+if ! dr_set_private_permissions "$BACKUP_LOCK_FILE"; then
+    dr_log 'ERROR' "Não foi possível restringir as permissões do lock global: ${BACKUP_LOCK_FILE}"
+    exit 1
+fi
+
+if ! flock -n "$LOCK_FD"; then
+    dr_log 'ERROR' "Outro backup geral já está em execução; lock indisponível: ${BACKUP_LOCK_FILE}"
+    exit 1
+fi
+
+LOCK_ACQUIRED=1
+dr_log 'INFO' "Lock global adquirido; arquivo=${BACKUP_LOCK_FILE}; retention_count=${BACKUP_RETENTION_COUNT}"
 
 RUN_DIRECTORY="${DR_STAGING_ROOT}/${RUN_ID}"
 if [[ -e "$RUN_DIRECTORY" ]]; then
@@ -223,5 +260,36 @@ else
 fi
 
 dr_log 'INFO' "Promoção remota final concluída; destino=${BACKUP_REMOTE_USER}@${BACKUP_REMOTE_HOST}:${REMOTE_FINAL_DIRECTORY}"
+
+run_retention() {
+    local retention_output=''
+    local retention_exit_code=0
+    local retention_line
+
+    dr_log 'INFO' "Início da retenção remota; keep_count=${BACKUP_RETENTION_COUNT}"
+
+    if retention_output="$(dr_remote_apply_retention \
+        "$BACKUP_REMOTE_USER" \
+        "$BACKUP_REMOTE_HOST" \
+        "$BACKUP_SSH_KEY" \
+        "$BACKUP_REMOTE_ROOT" \
+        "$BACKUP_RETENTION_COUNT" 2>&1)"; then
+        while IFS= read -r retention_line; do
+            [[ -n "$retention_line" ]] && dr_log 'INFO' "Retenção remota: ${retention_line}"
+        done <<< "$retention_output"
+        dr_log 'INFO' 'Retenção remota concluída'
+        return 0
+    fi
+
+    retention_exit_code=$?
+    dr_log 'WARN' "Retenção remota falhou após a promoção; o novo restore point continua válido; exit code=${retention_exit_code}"
+    while IFS= read -r retention_line; do
+        [[ -n "$retention_line" ]] && dr_log 'WARN' "Retenção remota: ${retention_line}"
+    done <<< "$retention_output"
+
+    return 0
+}
+
+run_retention
 
 exit 0

@@ -4,7 +4,7 @@
 
 `scripts/disaster-recovery/backup.sh` coordena os cinco backups de componente já existentes em uma única execução. Ele gera ou recebe um único `RUN_ID`, mantém todos os artefatos no mesmo staging local e promove uma única vez o diretório remoto completo.
 
-Esta implementação não instala Cron, não aplica retenção, não cria lock e não automatiza restore. A execução geral foi validada no laboratório; os fluxos isolados dos componentes continuam sendo evidências complementares por componente.
+Esta implementação não instala Cron nem automatiza restore. A execução geral, o lock global e a retenção foram validados no laboratório. Os fluxos isolados dos componentes continuam sendo evidências complementares por componente.
 
 ## Modos de execução
 
@@ -106,6 +106,14 @@ Os componentes são chamados sequencialmente, nesta ordem:
 
 Não há paralelismo. Isso preserva as janelas controladas já usadas individualmente por Redis e Portainer.
 
+## Lock global
+
+Antes de preparar o staging da execução e antes de qualquer operação remota, `backup.sh` abre `/srv/teste-deploy-data/backup-staging/.backup.lock` e tenta adquirir um `flock -n` exclusivo. O lock é restrito a `backup.sh`; os scripts individuais continuam executáveis de forma isolada, sem `flock`.
+
+Se outra execução geral já mantiver o lock, a nova execução falha rapidamente, registra a indisponibilidade do lock e retorna código diferente de zero. Nesse caso, ela não cria staging remoto, não executa componentes e não promove restore point. O descritor do arquivo é fechado quando o processo termina, liberando o lock.
+
+O mecanismo foi testado de forma efêmera com duas tentativas locais de `flock`; a segunda foi recusada. Ele também foi validado em teste real no laboratório, confirmando que uma segunda execução geral não prossegue enquanto o lock está ocupado.
+
 ## Manifesto global e promoção
 
 Depois que os cinco componentes retornam sucesso, o orquestrador cria no staging local `manifest.sha256` com SHA-256 somente dos artefatos finais, usando caminhos relativos à raiz da execução:
@@ -121,6 +129,27 @@ Depois que os cinco componentes retornam sucesso, o orquestrador cria no staging
 O manifesto não inclui os arquivos individuais `.sha256`. Ele recebe modo `600`, é transferido para o diretório remoto `.incomplete`, também recebe modo `600` e é validado remotamente com `sha256sum -c manifest.sha256` a partir da raiz da execução.
 
 Somente depois dessa validação o orquestrador confirma a presença de todos os artifacts, checksums individuais e manifesto esperados e executa o único `mv` remoto de `.incomplete/<RUN_ID>` para `<RUN_ID>`.
+
+## Retenção
+
+Após uma promoção final bem-sucedida, o orquestrador executa retenção remota. A variável `BACKUP_RETENTION_COUNT` tem default `7` e aceita somente inteiros entre `1` e `365`.
+
+A retenção considera apenas diretórios regulares não simbólicos diretamente em `BACKUP_REMOTE_ROOT` que tenham:
+
+- nome no formato `YYYY-MM-DD_HHMMSS`;
+- `manifest.sha256` regular, não simbólico.
+
+Os candidatos são ordenados pelo nome do `RUN_ID`; os sete mais recentes são preservados por padrão e somente os excedentes mais antigos são removidos por caminho explícito validado. `.incomplete/`, arquivos soltos, links simbólicos, nomes inválidos e diretórios sem manifesto não participam da seleção e não são removidos. O script nunca remove staging local.
+
+A retenção só é chamada depois de todos os componentes, manifesto, checksum remoto e promoção terem sido concluídos. Se ela falhar, o novo restore point promovido continua válido: o orquestrador registra um aviso e termina o fluxo de backup sem declarar a promoção inválida.
+
+As validações reais concluídas foram:
+
+- no `RUN_ID` `2026-09-24_165238`, a retenção não destrutiva no destino real registrou `RETENTION_RESTORE_POINTS=2`, `RETENTION_KEEP_COUNT=7` e `RETENTION_STATUS=SUCCESS`;
+- em `/srv/backups/teste-deploy-retention-test`, uma raiz remota isolada e distinta dos backups reais, o helper `dr_remote_apply_retention` recebeu nove restore points fictícios válidos e `keep_count=7`;
+- o helper removeu somente `2026-01-01_010101` e `2026-01-02_010101`, preservou `2026-01-03_010101` até `2026-01-09_010101`, e também preservou `.incomplete/`, `nome-invalido/`, `2026-01-10_010101-sem-manifest/` e `um-arquivo-solto`.
+
+Esse teste destrutivo foi limitado à raiz isolada; `/srv/backups/teste-deploy` não foi usado como alvo de remoção. A raiz de teste foi preservada após a evidência, pois sua remoção exige intervenção administrativa manual.
 
 ## Falhas
 
@@ -157,6 +186,6 @@ Os valores e os caminhos reais das credenciais não devem ser registrados no rep
 
 ## Pendências
 
-- Implementar lock global, retenção e agendamento somente em incrementos posteriores.
+- Definir Cron de backup em incremento posterior; lock e retenção já foram validados no laboratório.
 - Definir monitoramento, estratégia definitiva de secrets e restore automatizado separadamente.
 - Validar a recuperação completa em máquina limpa.

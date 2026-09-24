@@ -12,12 +12,36 @@ dr_now() {
 dr_resolve_run_id() {
     local candidate="${RUN_ID:-$(date '+%Y-%m-%d_%H%M%S')}"
 
+    dr_validate_run_id "$candidate" || return 1
+
+    printf '%s\n' "$candidate"
+}
+
+dr_validate_run_id() {
+    local candidate="$1"
+
     if [[ ! "$candidate" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]]; then
         printf 'RUN_ID inválido: use o formato YYYY-MM-DD_HHMMSS.\n' >&2
         return 1
     fi
+}
 
-    printf '%s\n' "$candidate"
+dr_resolve_retention_count() {
+    local candidate="${BACKUP_RETENTION_COUNT:-7}"
+    local numeric_value
+
+    if [[ ! "$candidate" =~ ^[0-9]{1,3}$ ]]; then
+        printf 'BACKUP_RETENTION_COUNT inválido: use um inteiro entre 1 e 365.\n' >&2
+        return 1
+    fi
+
+    numeric_value=$((10#$candidate))
+    if (( numeric_value < 1 || numeric_value > 365 )); then
+        printf 'BACKUP_RETENTION_COUNT inválido: use um inteiro entre 1 e 365.\n' >&2
+        return 1
+    fi
+
+    printf '%s\n' "$numeric_value"
 }
 
 dr_resolve_orchestration_mode() {
@@ -436,6 +460,72 @@ for artifact_path in "$@"; do
 done
 
 mv -- "$incomplete_directory" "$final_directory"
+REMOTE_COMMAND
+}
+
+dr_remote_apply_retention() {
+    local remote_user="$1"
+    local remote_host="$2"
+    local ssh_key="$3"
+    local remote_root="$4"
+    local retention_count="$5"
+
+    dr_validate_absolute_path "$remote_root"
+    if [[ "$remote_root" == '/' ]]; then
+        printf 'BACKUP_REMOTE_ROOT não pode ser /.\n' >&2
+        return 1
+    fi
+
+    if [[ ! "$retention_count" =~ ^[1-9][0-9]{0,2}$ ]] || (( retention_count > 365 )); then
+        printf 'Quantidade de retenção inválida.\n' >&2
+        return 1
+    fi
+
+    dr_ssh "$remote_user" "$remote_host" "$ssh_key" bash -s -- "$remote_root" "$retention_count" <<'REMOTE_COMMAND'
+set -Eeuo pipefail
+
+remote_root="$1"
+retention_count="$2"
+
+[[ "$remote_root" =~ ^/[A-Za-z0-9._/-]*$ ]]
+[[ "$remote_root" != / ]]
+[[ "$remote_root" != *..* ]]
+[[ "$retention_count" =~ ^[1-9][0-9]{0,2}$ ]]
+(( retention_count <= 365 ))
+[[ -d "$remote_root" ]]
+
+shopt -s nullglob
+valid_run_ids=()
+for candidate_path in "$remote_root"/*; do
+    [[ -d "$candidate_path" && ! -L "$candidate_path" ]] || continue
+
+    candidate_run_id="${candidate_path##*/}"
+    [[ "$candidate_run_id" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]] || continue
+    [[ -f "${candidate_path}/manifest.sha256" && ! -L "${candidate_path}/manifest.sha256" ]] || continue
+    valid_run_ids+=("$candidate_run_id")
+done
+
+sorted_run_ids=()
+if (( ${#valid_run_ids[@]} > 0 )); then
+    mapfile -t sorted_run_ids < <(printf '%s\n' "${valid_run_ids[@]}" | LC_ALL=C sort -r)
+fi
+
+printf 'RETENTION_RESTORE_POINTS=%s\n' "${#sorted_run_ids[@]}"
+printf 'RETENTION_KEEP_COUNT=%s\n' "$retention_count"
+
+for (( index = retention_count; index < ${#sorted_run_ids[@]}; index++ )); do
+    run_id="${sorted_run_ids[$index]}"
+    candidate_path="${remote_root}/${run_id}"
+
+    [[ "$run_id" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]]
+    [[ -d "$candidate_path" && ! -L "$candidate_path" ]]
+    [[ -f "${candidate_path}/manifest.sha256" && ! -L "${candidate_path}/manifest.sha256" ]]
+
+    rm -rf -- "$candidate_path"
+    printf 'RETENTION_REMOVED_RUN_ID=%s\n' "$run_id"
+done
+
+printf 'RETENTION_STATUS=SUCCESS\n'
 REMOTE_COMMAND
 }
 
