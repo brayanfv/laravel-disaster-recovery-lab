@@ -4,7 +4,7 @@
 
 `scripts/disaster-recovery/backup-mysql.sh` implementa a geração local do dump lógico de `teste_deploy`, seu checksum SHA-256 e a transferência automatizada desses dois artefatos para o destino externo do laboratório. A transferência usa staging remoto `.incomplete`, valida o checksum remotamente e só promove a execução após sucesso.
 
-Ele ainda não produz `manifest.sha256` global, não aplica retenção, não cria lock global, não instala Cron e não executa restore. A transferência integrada foi validada no laboratório, mas o backup MySQL continua sendo apenas um componente da futura automação completa.
+Quando executado isoladamente, ele não produz o `manifest.sha256` global nem promove um restore point completo. Na execução geral, `backup.sh` fornece o manifesto, o lock, a retenção e a promoção única; o wrapper de Cron existe e foi validado manualmente.
 
 O fluxo manual validado continua documentado em [mysql-backup-restore.md](mysql-backup-restore.md). Este script é a primeira implementação incremental baseada naquele fluxo.
 
@@ -113,7 +113,7 @@ O primeiro backup local automatizado validado usou o `RUN_ID` `2026-09-18_172438
 | Log | `/srv/teste-deploy-data/backup-logs/2026-09-18_172438-mysql.log` |
 | Resultado final | `Backup MySQL SUCCESS` |
 
-Isso valida a geração local do dump, do SHA-256 e do log pelo script. Não valida transferência externa, promoção remota, retenção ou restore automatizado.
+Isso valida a geração local inicial. A transferência externa, a promoção remota e a integração com manifesto, lock e retenção foram validadas posteriormente pelo script e pelo orquestrador.
 
 ### Falha real de conectividade externa
 
@@ -168,7 +168,7 @@ Esses diretórios foram preservados como evidência. O script foi refinado para 
 
 ## Limitações pendentes
 
-- Não há `manifest.sha256` da execução completa.
-- Não há orquestrador `backup.sh`, lock global, retenção, monitoramento, Cron ou restore automatizado.
+- O manifesto, orquestrador, lock e retenção existem para a execução geral; a execução isolada não substitui esse fluxo completo.
+- O wrapper de Cron existe e foi validado manualmente; a execução diária do **backup** pelo daemon permanece pendente.
 - A estratégia de gestão de secrets ainda é provisória; o arquivo de opções precisa ser preparado e protegido fora do repositório.
-- O backup em máquina limpa permanece pendente.
+- O restore manual de MySQL foi validado em máquina limpa com o restore point `2026-09-24_173106`; restore automatizado permanece pendente.

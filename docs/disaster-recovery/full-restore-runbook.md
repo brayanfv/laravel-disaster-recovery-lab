@@ -1,95 +1,89 @@
 # Runbook manual de disaster recovery completo — TESTE-DEPLOY
 
-> **STATUS: preparado, ainda não validado em máquina limpa.**
+> **STATUS: validado em máquina limpa no laboratório.**
+>
+> A reconstrução validada usou o restore point **2026-09-24_173106** no host limpo **172.23.1.119**, com usuário **sukitas** e projeto em **/home/sukitas/Documentos/laravel-deploy-test/teste-deploy**. Isto comprova o procedimento do laboratório; não declara o DR de produção concluído.
 
-## 1. Objetivo, escopo e premissas
+## 1. Escopo e regras de segurança
 
-Este runbook orienta a reconstrução manual do laboratório `TESTE-DEPLOY` em uma máquina limpa, usando:
+Este runbook recupera código, configurações entregues separadamente e dados persistentes. O restore point completo contém:
 
-- o repositório Git e o commit desejado;
-- um restore point completo já promovido no servidor externo;
-- os documentos de inventário e de backup/restore por componente;
-- secrets e configurações entregues por canal protegido, fora do Git e fora do restore point de dados.
-
-Ele não é um script e não autoriza executar comandos cegamente em uma máquina com dados desconhecidos. Execute cada seção manualmente, confirme o resultado indicado e interrompa ao primeiro erro de integridade, conflito de dados ou configuração não disponível.
-
-O restore point completo contém os artefatos abaixo, com caminhos relativos à raiz da execução:
-
-```text
+~~~text
 mysql/teste_deploy.sql
 mongodb/teste_deploy_lab.archive
 redis/redis_data.tar.gz
 laravel-storage/laravel-storage.tar.gz
 portainer/portainer_data.tar.gz
 manifest.sha256
-```
+~~~
 
-Não estão incluídos automaticamente:
+Ele não contém automaticamente:
 
-- `.env`, `infra/.env`, `APP_KEY`, senhas, chaves privadas, tokens e demais secrets;
-- configurações customizadas do host, como Nginx, UFW e Fail2Ban;
-- uploads futuros em `storage/app/public`, caso passem a existir;
-- um mecanismo automático de restore, alertas ou criptografia de secrets.
+- .env, infra/.env, APP_KEY, senhas, chaves privadas, tokens ou outros secrets;
+- configuração do host, como Nginx, UFW e Fail2Ban;
+- infraestrutura de backup do host restaurado;
+- uploads futuros em storage/app/public, se existirem;
+- restore automatizado.
 
-## 2. Regras de segurança antes de começar
+Antes de começar:
 
-1. Trabalhe em uma máquina realmente limpa ou em ambiente isolado. Para testes parciais, use bancos, volumes e portas isolados.
-2. Não restaure sobre um banco, volume ou diretório cujo conteúdo não tenha sido identificado. Pare e faça uma cópia de segurança independente antes de substituir qualquer dado conhecido.
-3. Nunca use um diretório sob `.incomplete/` como restore point.
-4. Nunca continue se `sha256sum -c manifest.sha256` falhar.
-5. Não escreva secrets em comandos, histórico do shell, arquivos versionados ou logs. Forneça-os apenas por canal protegido e com permissões restritivas.
-6. Registre o `RUN_ID`, o commit Git, os comandos executados e os resultados das validações em um registro operacional fora do repositório.
+1. Use máquina limpa ou ambiente isolado. Não sobrescreva dados desconhecidos.
+2. Nunca restaure a partir de .incomplete/.
+3. Pare se qualquer checksum falhar.
+4. Não exponha secrets em argumentos, histórico, logs ou Git.
+5. Preserve a APP_KEY original; não execute php artisan key:generate.
+6. Não rode migrations ou seeders antes de validar o dump e a versão do código.
 
-## 3. Escolher e validar o restore point
+### Usuários, caminhos e IPs não são portáveis
 
-O destino externo atual do laboratório é `teste@172.23.1.115:/srv/backups/teste-deploy`. O IP é específico deste laboratório; em outro ambiente, descubra e valide o destino antes de continuar.
+O host primário usa **lucas-cooperja** e **/home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy**. O teste limpo usou **sukitas**, **/home/sukitas/Documentos/laravel-deploy-test/teste-deploy** e **172.23.1.119**.
 
-Defina o identificador escolhido no formato `YYYY-MM-DD_HHMMSS`:
+**Não copie caminhos, usuário, IP ou crontab entre hosts sem adaptar.** No host alvo, defina e confira os próprios valores:
 
-```bash
-RUN_ID='<RUN_ID_PROMOVIDO>'
+~~~bash
+TARGET_USER='sukitas'
+PROJECT_ROOT="/home/${TARGET_USER}/Documentos/laravel-deploy-test/teste-deploy"
+TARGET_IP='172.23.1.119'
+~~~
+
+Os valores acima são apenas a evidência do teste validado.
+
+## 2. Selecionar, copiar e validar o restore point
+
+O destino externo validado no laboratório é **teste@172.23.1.115:/srv/backups/teste-deploy**; esse IP é específico do laboratório.
+
+~~~bash
+RUN_ID='2026-09-24_173106'
 BACKUP_HOST='teste@172.23.1.115'
 BACKUP_ROOT='/srv/backups/teste-deploy'
-```
 
-Liste somente os diretórios diretos candidatos e confirme visualmente que o `RUN_ID` escolhido está fora de `.incomplete/`:
-
-```bash
-ssh "$BACKUP_HOST" \
-  "find '$BACKUP_ROOT' -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r"
-```
-
-Antes de baixar, confirme que o diretório promovido e o manifesto existem e que o manifesto valida no próprio destino de backup:
-
-```bash
 ssh "$BACKUP_HOST" "
   test -d '$BACKUP_ROOT/$RUN_ID' &&
   test -f '$BACKUP_ROOT/$RUN_ID/manifest.sha256' &&
-  ! test -L '$BACKUP_ROOT/$RUN_ID/manifest.sha256' &&
   cd -- '$BACKUP_ROOT/$RUN_ID' &&
   sha256sum -c manifest.sha256
 "
-```
+~~~
 
-**Resultado esperado:** todos os cinco artefatos devem retornar `SUCESSO` ou `OK`, conforme a localidade do comando. Se houver falha, não use esse `RUN_ID`; investigue o destino externo e escolha outro restore point promovido.
+Copie apenas o diretório promovido para uma área local privada e valide-o novamente:
 
-## 4. Preparar a máquina limpa
+~~~bash
+RESTORE_PARENT="$HOME/teste-deploy-restore"
+RESTORE_DIRECTORY="$RESTORE_PARENT/$RUN_ID"
+umask 077
+mkdir -p "$RESTORE_PARENT"
+scp -r "$BACKUP_HOST:$BACKUP_ROOT/$RUN_ID" "$RESTORE_PARENT/"
+cd "$RESTORE_DIRECTORY"
+sha256sum -c manifest.sha256
+~~~
 
-O laboratório atual usa uma base Linux Mint/Ubuntu, MySQL, Nginx e Cron no host, além de Docker para MongoDB, Redis e Portainer. Confirme a versão disponível e compare-a com os inventários antes de instalar: PHP 8.3, MySQL 8.0, Nginx 1.24 e imagens Docker documentadas são as referências atuais do laboratório.
+**Sucesso esperado:** os cinco artefatos retornam sucesso no manifesto remoto e local. O manifest de 2026-09-24_173106 passou nas duas validações.
 
-Em Debian, Ubuntu ou Linux Mint, os comandos abaixo são um ponto de partida manual. Eles não devem ser executados automaticamente por este documento:
+## 3. Preparar a máquina limpa
 
-```bash
-sudo apt update
-sudo apt install \
-  git docker.io docker-compose-plugin \
-  php8.3-cli php8.3-fpm php8.3-mysql php8.3-curl php8.3-mbstring php8.3-xml php8.3-zip \
-  composer nginx mysql-server cron openssh-client tar coreutils
-```
+O laboratório requer Git, PHP 8.3 e PHP-FPM, Composer, MySQL, Nginx, Cron, Docker Engine com Compose, SSH, tar e sha256sum. MongoDB e Redis são serviços Docker definidos em infra/compose.yml, não instalações diretas do host.
 
-Depois, valide as ferramentas e serviços essenciais:
-
-```bash
+~~~bash
 git --version
 php --version
 composer --version
@@ -98,369 +92,351 @@ docker compose version
 mysql --version
 nginx -v
 systemctl is-active mysql nginx cron docker
-```
+~~~
 
-Se o usuário que executará Docker não tiver acesso ao socket, aplique a política local de grupo `docker` conscientemente e abra uma nova sessão antes de seguir. A associação ao grupo dá acesso administrativo ao Docker e não deve ser tratada como detalhe inofensivo.
+O frontend exige Node.js atual. No teste, Node do APT v18.19.1 com npm 9.2.0 não suportou a dependência atual do Vite. A reconstrução foi concluída com Node v22.23.3 e npm 10.9.9.
 
-MongoDB e Redis não exigem instalação direta no host neste laboratório: serão iniciados por `infra/compose.yml`. Não instale ou use volumes de bancos de uma tentativa anterior sem antes decidir explicitamente se podem ser descartados.
+~~~bash
+node --version
+npm --version
+~~~
 
-## 5. Recuperar o repositório e as dependências
+Não reutilize banco ou volume Docker de tentativa anterior sem confirmar que pode ser substituído.
 
-O caminho usado no laboratório atual é:
+## 4. Recuperar código, dependências e assets
 
-```text
-/home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy
-```
+Clone o repositório no caminho do **host alvo**, selecione o commit aprovado e confira o estado:
 
-Uma máquina limpa pode manter esse caminho para compatibilidade com a configuração Nginx já inventariada, ou usar outro caminho desde que o virtual host seja revisado para apontar ao novo `public/`.
-
-Clone o repositório e escolha o commit ou branch aprovado para o teste:
-
-```bash
-PROJECT_ROOT='/home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy'
+~~~bash
 mkdir -p "$(dirname -- "$PROJECT_ROOT")"
-git clone '<URL_DO_REPOSITORIO_FORNECIDA_SEPARADAMENTE>' "$PROJECT_ROOT"
+git clone '<URL_DO_REPOSITORIO_APROVADA>' "$PROJECT_ROOT"
 cd "$PROJECT_ROOT"
 git checkout '<BRANCH_OU_COMMIT_APROVADO>'
 git rev-parse --short HEAD
 git status --short
-```
-
-**Resultado esperado:** o commit exibido deve corresponder ao registro operacional do restore e o working tree deve estar limpo antes dos dados não versionados serem restaurados.
-
-Instale dependências PHP a partir do lockfile:
-
-```bash
 composer install --no-interaction --prefer-dist --optimize-autoloader
-```
+~~~
 
-`vendor/` é reconstruível e não vem do backup. Se o processo de entrega exigir assets front-end, avalie separadamente `npm ci` e o comando de build definido pelo projeto; não invente uma etapa de build sem confirmar essa necessidade.
+O diretório vendor é reconstruível. Em um clone novo, public/build pode não existir. Com Node 22 ou versão compatível:
 
-## 6. Fornecer configurações e secrets externamente
+~~~bash
+# Execute somente no clone novo, depois de conferir PROJECT_ROOT.
+rm -rf node_modules
+npm ci
+npm run build
+test -f public/build/manifest.json
+find public/build/assets -maxdepth 1 -type f \( -name 'app-*.css' -o -name 'app-*.js' \) -print
+~~~
 
-Antes de iniciar serviços que dependam de credenciais, obtenha por canal protegido e aplique com modo restritivo:
+**Sucesso esperado:** npm run build termina sem erro e existem public/build/manifest.json, app-*.css e app-*.js. A falha com node:util / styleText sob Node 18 é incompatibilidade de runtime, não falha do backup.
 
-- `.env` da aplicação ou seus valores necessários;
-- `APP_KEY` original da aplicação;
-- dados de conexão e credenciais MySQL;
-- credencial administrativa do MongoDB;
-- `infra/.env` para o Compose, se aplicável;
-- credenciais de runtime adicionais, como e-mail, AWS/S3 ou Redis, caso estejam realmente em uso;
-- chave SSH de backup somente se esta máquina também for enviar ou consultar backups diretamente.
+## 5. Aplicar configuração e secrets externos
 
-Use arquivos protegidos entregues separadamente. Por exemplo, para um `.env` já obtido de fonte confiável:
+Entregue .env e infra/.env separadamente, por canal protegido. No host limpo validado:
 
-```bash
-install -m 600 '<CAMINHO_PROTEGIDO_DO_ENV>' "$PROJECT_ROOT/.env"
-install -m 600 '<CAMINHO_PROTEGIDO_DO_INFRA_ENV>' "$PROJECT_ROOT/infra/.env"
-```
+~~~text
+.env       640  <usuário-local>:www-data
+infra/.env 600  <usuário-local>:<grupo-local>
+~~~
 
-Substitua os placeholders apenas no terminal da pessoa autorizada; não registre os valores em tickets, Git ou logs. Não gere uma nova `APP_KEY` quando o objetivo for recuperar dados já criptografados: mudar essa chave pode tornar valores existentes irrecuperáveis.
+Preserve a APP_KEY, mantenha .env acessível ao runtime PHP-FPM sem leitura pública e mantenha infra/.env privado. Arquivos de senha e chaves de backup permanecem fora do repositório.
 
-O backup de dados não substitui a gestão de secrets e configurações. Sem essas entradas externas, a reconstrução pode restaurar os dados, mas não necessariamente inicializar a aplicação ou autenticar nos serviços.
+## 6. Restaurar MySQL
 
-## 7. Baixar e validar novamente o restore point
+O banco validado é **teste_deploy**; a conta da aplicação é **laravel@localhost**. Um administrador do host cria ou recupera o banco e essa conta com privilégio mínimo. A conta da aplicação não precisa de privilégio global para criar bancos.
 
-Use uma área local isolada, com permissões privadas. O exemplo abaixo pressupõe que a chave SSH, se necessária, foi fornecida externamente; não coloque seu conteúdo no repositório.
+Importe sem senha em argumentos:
 
-```bash
-RESTORE_PARENT="$HOME/teste-deploy-restore"
-RESTORE_DIRECTORY="$RESTORE_PARENT/$RUN_ID"
-umask 077
-mkdir -p "$RESTORE_PARENT"
+~~~bash
+mysql --defaults-extra-file='<ARQUIVO_DE_CREDENCIAL_PROTEGIDO>' \
+  -u laravel teste_deploy < "$RESTORE_DIRECTORY/mysql/teste_deploy.sql"
 
-scp -r "$BACKUP_HOST:$BACKUP_ROOT/$RUN_ID" "$RESTORE_PARENT/"
-cd "$RESTORE_DIRECTORY"
-sha256sum -c manifest.sha256
-```
+mysql --defaults-extra-file='<ARQUIVO_DE_CREDENCIAL_PROTEGIDO>' \
+  -u laravel teste_deploy -e '
+    SHOW TABLES;
+    SELECT COUNT(*) AS users_count FROM users;
+    SELECT COUNT(*) AS sessions_count FROM sessions;'
+~~~
 
-Se o acesso exigir a chave dedicada, acrescente somente a referência protegida com `-i <CAMINHO_DA_CHAVE>` ao `ssh` e ao `scp`; não copie a chave para o diretório de restore.
+**Resultado validado:** foram restauradas as tabelas cache, cache_locks, failed_jobs, job_batches, jobs, migrations, password_reset_tokens, sessions e users. As contagens no restore point validado foram **users=2** e **sessions=7108**.
 
-**Resultado esperado:** o diretório local contém os cinco subdiretórios de componente e `manifest.sha256`; todos os hashes são aprovados. Não restaure componente algum antes dessa segunda validação.
+### Erro real: MySQL ERROR 1045
 
-## 8. Ordem manual de restore
+O primeiro teste falhou porque a senha criada para laravel@localhost não correspondia ao secret externo usado pelo .env. A correção foi alinhar a conta local ao secret externamente provisionado. Não gere senha aleatória e não altere o .env sem coordenação; confirme a fonte externa de verdade e alinhe o usuário local a ela.
 
-Siga esta ordem para reduzir dependências e evitar que serviços gravem em dados ainda incompletos:
+Não rode migrations ou seeders antes de validar o banco restaurado e a versão da aplicação.
 
-1. preparar sistema operacional, ferramentas e capacidade local;
-2. recuperar o repositório e receber secrets/configurações separadamente;
-3. preparar MySQL e restaurar `teste_deploy`;
-4. preparar MongoDB e restaurar `teste_deploy_lab`;
-5. restaurar o volume Redis antes de iniciar o container Redis;
-6. restaurar `storage/app/private`;
-7. restaurar o volume `portainer_data` antes de iniciar Portainer;
-8. concluir preparação Laravel e validar conexões;
-9. aplicar/reproduzir configurações Nginx validadas e ativar o site;
-10. recriar os agendamentos de Scheduler e backup no crontab correto;
-11. executar a validação final.
+## 7. Restaurar MongoDB
 
-Essa ordem é um procedimento proposto para máquina limpa. Ela ainda não foi validada de ponta a ponta no laboratório.
+MongoDB usa o container **teste-deploy-mongodb**, imagem **mongo:8.0.32-noble**, banco **teste_deploy_lab** e coleção **recovery_tests**.
 
-## 9. Restaurar MySQL
-
-O MySQL é um serviço do host e o artefato é um dump lógico. Confira primeiro se não existe banco com dados desconhecidos:
-
-```bash
-sudo systemctl enable --now mysql
-sudo mysql -e "SHOW DATABASES LIKE 'teste_deploy';"
-```
-
-Se o banco já existir, pare. Em máquina limpa, crie o banco somente após confirmar o nome e a política de caracteres definida para o ambiente:
-
-```bash
-sudo mysql -e 'CREATE DATABASE `teste_deploy`;'
-```
-
-Crie ou recupere a conta de aplicação por um procedimento administrativo protegido, concedendo apenas os privilégios necessários sobre `teste_deploy`. O usuário da aplicação não deve receber privilégio global para criar bancos; esse princípio de menor privilégio foi validado no laboratório.
-
-Importe usando uma credencial fornecida externamente, sem senha em argumento. Exemplo conceitual com arquivo de opções protegido:
-
-```bash
-mysql --defaults-extra-file='<ARQUIVO_MYSQL_PROTEGIDO>' \
-  -u '<USUARIO_DA_APLICACAO>' \
-  teste_deploy < "$RESTORE_DIRECTORY/mysql/teste_deploy.sql"
-```
-
-Valide estrutura e contagens sem exibir dados de usuários:
-
-```bash
-mysql --defaults-extra-file='<ARQUIVO_MYSQL_PROTEGIDO>' \
-  -u '<USUARIO_DA_APLICACAO>' \
-  teste_deploy -e 'SHOW TABLES; SELECT COUNT(*) AS users_count FROM users; SELECT COUNT(*) AS sessions_count FROM sessions;'
-```
-
-**Resultado esperado:** as tabelas Laravel, incluindo `migrations`, `users`, `sessions`, `cache`, `jobs` e tabelas relacionadas, devem existir. As contagens podem diferir do teste histórico porque variam conforme o restore point escolhido. Não execute migrations ou seeders cegamente após importar: primeiro compare `php artisan migrate:status` com o estado restaurado.
-
-## 10. Restaurar MongoDB
-
-O Compose versionável define `teste-deploy-mongodb`, a imagem `mongo:8.0.32-noble`, o banco `teste_deploy_lab` e o volume `mongodb_data`. Com `infra/.env` já fornecido externamente, inicie somente o serviço MongoDB para criar ou localizar o volume:
-
-```bash
+~~~bash
 cd "$PROJECT_ROOT"
 docker compose --env-file infra/.env -f infra/compose.yml up -d mongodb
 docker compose --env-file infra/.env -f infra/compose.yml ps mongodb
-```
-
-Copie o archive para o container. Em máquina limpa, o banco deve estar vazio; se já houver dados, pare e restaure em banco isolado antes de decidir qualquer sobrescrita.
-
-```bash
 docker cp "$RESTORE_DIRECTORY/mongodb/teste_deploy_lab.archive" \
   teste-deploy-mongodb:/tmp/teste_deploy_lab.archive
-```
+~~~
 
-Dentro de uma sessão interativa no container, crie temporariamente um arquivo YAML privado para a senha fornecida externamente. Não passe a senha em `--password`, não a ponha em um `docker exec` registrado e remova o arquivo ao terminar:
+Use uma configuração temporária protegida para a senha dentro do container, sem senha em argv, e remova-a junto com o archive ao final. O teste limpo usou --drop em container novo:
 
-```bash
-docker exec -it teste-deploy-mongodb sh
-umask 077
-cat > /tmp/.mongorestore-config.yml
-# Informe somente na sessão interativa: password: <valor fornecido externamente>
-mongorestore \
+~~~bash
+docker exec -it teste-deploy-mongodb mongorestore \
   --config=/tmp/.mongorestore-config.yml \
   --username lab_mongo_root \
   --authenticationDatabase admin \
-  --archive=/tmp/teste_deploy_lab.archive \
-  --nsInclude='teste_deploy_lab.*'
-rm -f /tmp/.mongorestore-config.yml /tmp/teste_deploy_lab.archive
-exit
-```
+  --drop \
+  --archive=/tmp/teste_deploy_lab.archive
+~~~
 
-Para validar, conecte-se de forma interativa ao `mongosh` com a credencial externa e consulte apenas o marcador:
+Valide apenas o marcador:
 
-```javascript
+~~~javascript
 use teste_deploy_lab
 db.recovery_tests.find({ identificador: 'DR_TEST_MONGO_001' })
 db.recovery_tests.countDocuments()
-```
+~~~
 
-**Resultado esperado:** o marcador `DR_TEST_MONGO_001` existe na coleção `recovery_tests` e a contagem é compatível com o restore point. A autenticação usa `admin` como `authenticationDatabase`.
+**Resultado validado:** um documento foi restaurado, com zero falhas. A consulta correta usa identificador; a consulta antiga usando marker retornava zero e não indicava problema no backup.
 
-## 11. Restaurar Redis
+## 8. Restaurar Redis
 
-Redis usa a imagem `redis:7.4.11-alpine`, AOF habilitado, o container `teste-deploy-redis` e o volume nomeado `redis_data`. O archive contém o diretório AOF e `dump.rdb`.
+Redis usa **teste-deploy-redis**, imagem **redis:7.4.11-alpine**, AOF e volume nomeado **redis_data**. O archive contém appendonlydir/ e dump.rdb.
 
-Redis não pode estar escrevendo no volume durante a extração. Em uma máquina limpa, crie o volume e confirme que ele está vazio antes de restaurar:
+No host limpo, pare Redis, confirme que redis_data é o volume de restore e limpe-o **somente se ele não tiver dados a preservar**. Extraia o archive com o volume parado:
 
-```bash
-docker volume create redis_data
+~~~bash
+cd "$PROJECT_ROOT"
+docker compose --env-file infra/.env -f infra/compose.yml stop redis
+docker volume inspect redis_data
+
 docker run --rm \
   -v redis_data:/data \
   -v "$RESTORE_DIRECTORY/redis":/restore:ro \
   alpine:3.20 \
-  sh -c 'test -z "$(find /data -mindepth 1 -maxdepth 1 -print -quit)" && tar -xzf /restore/redis_data.tar.gz -C /data'
-```
+  sh -c 'tar -xzf /restore/redis_data.tar.gz -C /data'
 
-Se o volume não estiver vazio, o comando falha deliberadamente. Não limpe o volume sem confirmar que ele não contém dado a preservar. Depois da extração, inicie Redis pelo Compose:
-
-```bash
-cd "$PROJECT_ROOT"
 docker compose --env-file infra/.env -f infra/compose.yml up -d redis
 docker compose --env-file infra/.env -f infra/compose.yml exec -T redis \
   redis-cli GET DR_TEST_REDIS_001
-```
+~~~
 
-**Resultado esperado:** o container está ativo e a chave retorna o valor esperado do marcador. No laboratório, isso comprovou a recuperação de estado persistente; em produção, a necessidade de backup Redis depende do seu papel real.
+**Resultado validado:** após o restart, DR_TEST_REDIS_001 retornou disaster-recovery-test. Em produção, a necessidade de backup do Redis continua dependente do papel real do serviço.
 
-## 12. Restaurar o storage privado do Laravel
+## 9. Restaurar storage privado e permissões Laravel
 
-O archive `laravel-storage.tar.gz` contém o conteúdo relativo de `storage/app/private/`, incluindo `DR_TEST_STORAGE_001.txt`, `scheduler-dr-test.log` e `.gitignore` no restore point validado.
+O archive contém a estrutura relativa de storage/app/private/, incluindo:
 
-Primeiro, confirme que o destino não contém dados inesperados. Em um clone limpo, apenas o arquivo de controle do Git pode existir; se houver outros arquivos, pare e investigue:
+~~~text
+DR_TEST_STORAGE_001.txt
+scheduler-dr-test.log
+.gitignore
+~~~
 
-```bash
+~~~bash
 PRIVATE_STORAGE="$PROJECT_ROOT/storage/app/private"
 mkdir -p "$PRIVATE_STORAGE"
-find "$PRIVATE_STORAGE" -mindepth 1 -maxdepth 1 ! -name '.gitignore' -print
-```
-
-Depois da inspeção, extraia preservando a estrutura relativa:
-
-```bash
 tar -xzf "$RESTORE_DIRECTORY/laravel-storage/laravel-storage.tar.gz" -C "$PRIVATE_STORAGE"
-test -f "$PRIVATE_STORAGE/DR_TEST_STORAGE_001.txt"
 grep -F 'DISASTER_RECOVERY_STORAGE_TEST' "$PRIVATE_STORAGE/DR_TEST_STORAGE_001.txt"
 grep -F 'DR_TEST_SCHEDULER_001' "$PRIVATE_STORAGE/scheduler-dr-test.log" | tail -1
-```
+~~~
 
-As permissões e o ownership armazenados no archive precisam ser conferidos no destino. O teste de extração isolada observou, por exemplo, arquivos `664` e `.gitignore` `775`; isso não foi tratado como falha do backup. Identifique o usuário/grupo efetivo do PHP-FPM no host alvo e ajuste somente o necessário para que o processo da aplicação leia/escreva em `storage/` sem conceder permissões amplas.
+No teste, o ownership foi ajustado ao usuário local e grupo www-data. O PHP-FPM precisa ler e gravar em storage, storage/framework, storage/logs e bootstrap/cache:
 
-**Resultado esperado:** o marcador privado existe com o conteúdo correto e o log do Scheduler contém o marcador histórico. O conteúdo de `storage/app/private` é dado persistente e não é recuperado por Git.
+~~~bash
+cd "$PROJECT_ROOT"
+sudo chown -R "$TARGET_USER":www-data storage
+sudo find storage -type d -exec chmod 775 {} \;
+sudo find storage -type f -exec chmod 664 {} \;
+sudo chown -R "$TARGET_USER":www-data bootstrap/cache
+sudo chmod -R 775 bootstrap/cache
 
-## 13. Restaurar Portainer
+sudo -u www-data test -w bootstrap/cache && echo 'CACHE WRITE OK'
+sudo -u www-data php artisan about
+sudo -u www-data php artisan optimize:clear
+~~~
 
-O Portainer usa o container `portainer`, o volume `portainer_data`, destino `/data`, Docker socket em `/var/run/docker.sock` e HTTPS na porta 9443. O archive preserva o estado, incluindo `portainer.db` e chaves privadas; trate-o como dado sensível.
+O erro inicial Target class [view] does not exist não era a causa raiz: a falha efetiva era bootstrap/cache directory must be present and writable. A validação CACHE WRITE OK e php artisan about como www-data confirmaram a correção.
 
-Em máquina limpa, restaure o volume antes de iniciar Portainer e confirme que o volume não contém dados inesperados:
+## 10. Restaurar Portainer
 
-```bash
+Portainer usa o volume **portainer_data** em /data e o socket /var/run/docker.sock. O archive inclui portainer.db e material criptográfico; trate-o como dado sensível.
+
+~~~bash
 docker volume create portainer_data
 docker run --rm \
   -v portainer_data:/data \
   -v "$RESTORE_DIRECTORY/portainer":/restore:ro \
   alpine:3.20 \
-  sh -c 'test -z "$(find /data -mindepth 1 -maxdepth 1 -print -quit)" && tar -xzf /restore/portainer_data.tar.gz -C /data'
-```
+  sh -c 'tar -xzf /restore/portainer_data.tar.gz -C /data'
+~~~
 
-O laboratório atual usa `portainer/portainer-ce:latest`, uma tag mutável. Antes de um DR definitivo, obtenha uma versão ou digest conhecido e compatível com o backup. Não substitua esse ponto por uma suposição de que `latest` continuará equivalente:
+O teste iniciou Portainer com a configuração atual portainer/portainer-ce:latest, volume restaurado e Docker socket. O log carregou portainer.db, registrou migração **2.45.0 -> 2.45.1**, iniciou Portainer **2.45.1** e permitiu login com conta existente no backup.
 
-```bash
-PORTAINER_IMAGE='<VERSAO_OU_DIGEST_VALIDADO_EXTERNAMENTE>'
-docker pull "$PORTAINER_IMAGE"
-docker run -d \
-  --name portainer \
-  --restart always \
-  -p 9443:9443 \
-  -v portainer_data:/data \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  "$PORTAINER_IMAGE"
-```
+Isto valida o restore e também confirma um gap: latest é mutável. Não escolha uma tag final neste documento. Antes do DR definitivo, confirme no host primário a versão ou digest de origem e fixe referência compatível. A lista de containers não é evidência isolada porque ela vem do Docker socket atual; o login com conta pré-existente é a validação principal.
 
-Valide o container e o acesso HTTPS. A evidência funcional de persistência é autenticar com uma conta que existia antes do backup, usando credenciais fornecidas fora deste documento. A lista de containers vista na interface não basta por si só, pois ela é fornecida pelo Docker socket atual.
+## 11. Reproduzir Nginx e PHP-FPM
 
-## 14. Preparar e validar Laravel
+O ambiente usa HTTP na porta 80 e PHP-FPM 8.3 pelo socket /var/run/php/php8.3-fpm.sock. No teste, as zonas foram declaradas em /etc/nginx/conf.d/rate-limits.conf:
 
-Com `.env`, banco, storage e serviços disponíveis, faça apenas validações não destrutivas primeiro:
+~~~nginx
+limit_req_zone $binary_remote_addr zone=login_limit:10m rate=3r/s;
+limit_req_zone $binary_remote_addr zone=geral_limit:10m rate=30r/s;
+~~~
 
-```bash
-cd "$PROJECT_ROOT"
-php artisan --version
-php artisan about
-php artisan migrate:status
-php artisan schedule:list
-```
+O virtual host validado em /etc/nginx/sites-available/teste.local consolidou os dois blocos PHP existentes no host primário:
 
-Não execute migrations, seeders, `key:generate`, limpeza de cache ou workers cegamente depois de um restore. Primeiro confirme que:
+~~~nginx
+server {
+    listen 80;
+    server_name 172.23.1.119;
+    root /home/sukitas/Documentos/laravel-deploy-test/teste-deploy/public;
+    index index.php index.html;
 
-- o `.env` tem a `APP_KEY` original e os dados de conexão corretos;
-- MySQL, MongoDB e Redis estão no estado esperado;
-- `storage/app/private` está presente e gravável pelo runtime;
-- os diretórios temporários `storage/framework` e caches podem ser reconstruídos conforme a necessidade, sem apagar dados persistentes.
+    error_log /var/log/nginx/error.log error;
+    access_log /var/log/nginx/laravel_access.log;
+    error_log /var/log/nginx/laravel_error.log;
 
-Quando a configuração estiver confirmada, valide a aplicação pelo fluxo definido pelo projeto. O Laravel atual usa MySQL para cache, sessão e fila; Redis não é uma dependência atual do Laravel neste laboratório.
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
 
-## 15. Reproduzir e ativar Nginx
+    location ~ \.php$ {
+        limit_req zone=login_limit burst=5 nodelay;
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
 
-Nginx é um serviço do host. O inventário confirma a configuração principal em `/etc/nginx/nginx.conf`, o virtual host em `/etc/nginx/sites-available/teste.local`, o link em `/etc/nginx/sites-enabled/teste.local`, PHP-FPM 8.3 via `/var/run/php/php8.3-fpm.sock` e HTTP na porta 80. HTTPS não está configurado no laboratório atual.
+    location ~ /\.ht {
+        deny all;
+    }
+}
+~~~
 
-Esses arquivos não fazem parte do restore point de dados. Recupere-os do canal de configuração/versionamento definido separadamente e revise o `root` do virtual host para garantir que corresponde ao `public/` do clone. Somente depois disso, ative e teste:
+Adapte server_name e root ao host alvo, crie o link de ativação e valide:
 
-```bash
+~~~bash
 sudo ln -s /etc/nginx/sites-available/teste.local /etc/nginx/sites-enabled/teste.local
 sudo nginx -t
 sudo systemctl reload nginx
-```
+~~~
 
-Se o link já existir ou a configuração divergir, pare e revise em vez de sobrescrever. **Resultado esperado:** `nginx -t` aprova a configuração e a aplicação responde pela rota configurada. Consulte [nginx.md](../inventario/nginx.md) para rate limits, logs e pendências conhecidas.
+### ACL necessária quando o projeto fica sob /home/<usuário>
 
-## 16. Scheduler e Cron
+No host limpo, Nginx retornou 404 porque /home/sukitas era 750 e www-data não podia atravessá-lo. Quando o projeto estiver dentro de um home, aplique travessia mínima ao usuário do PHP-FPM:
 
-O Scheduler Laravel é código versionável em `routes/console.php`; o log que ele gera foi restaurado junto com o storage privado. Valide-o manualmente antes de depender do agendamento:
+~~~bash
+sudo setfacl -m u:www-data:--x /home/sukitas
+sudo -u www-data test -r \
+  /home/sukitas/Documentos/laravel-deploy-test/teste-deploy/public/index.php \
+  && echo 'OK'
+~~~
 
-```bash
+No teste, o comando retornou OK. Substitua sukitas pelo usuário real do alvo; não abra o home para leitura geral se a ACL mínima resolver.
+
+## 12. Validar aplicação, Vite e autenticação
+
+~~~bash
+cd "$PROJECT_ROOT"
+php artisan --version
+php artisan about
+php artisan schedule:list
+curl -I "http://$TARGET_IP/"
+curl -I "http://$TARGET_IP/login"
+~~~
+
+No teste, os drivers eram cache database, banco mysql, fila database e sessão database. A rota / retornou 302 para /login; após o build Vite, GET e HEAD /login retornaram 200.
+
+Se /login retornar 500 e public/build estiver ausente, refaça o build da seção 4. Isto é falha de assets reconstruíveis, não falha dos dados restaurados.
+
+A autenticação com usuário restaurado também foi validada. Como a senha original não era conhecida, ela foi redefinida somente no host limpo de teste, via Laravel Tinker, com credencial temporária fora deste documento. Em ambiente com dados reais, use procedimento de recuperação autorizado; não exponha senha nem altere a origem.
+
+## 13. Validar Scheduler e Cron do Scheduler
+
+O Scheduler é código versionável; o log é dado persistente recuperado no storage. Primeiro execute manualmente:
+
+~~~bash
 cd "$PROJECT_ROOT"
 CACHE_STORE=file /usr/bin/php artisan schedule:run
 tail -n 5 storage/app/private/scheduler-dr-test.log
-```
+~~~
 
-O crontab do usuário `lucas-cooperja` precisa conter a tarefa do Scheduler e, no laboratório atual, a tarefa diária do backup:
+No host de teste, o crontab do usuário local continha a linha adaptada ao novo caminho:
 
-```cron
-* * * * * cd /home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy && CACHE_STORE=file /usr/bin/php artisan schedule:run >> /dev/null 2>&1
-0 2 * * * /home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy/scripts/disaster-recovery/run-backup-cron.sh
-```
+~~~cron
+* * * * * cd /home/sukitas/Documentos/laravel-deploy-test/teste-deploy && CACHE_STORE=file /usr/bin/php artisan schedule:run >> /dev/null 2>&1
+~~~
 
-Instale ou revise essas linhas manualmente com `crontab -e` no usuário correto, depois valide:
+Valide com:
 
-```bash
+~~~bash
 crontab -l
 systemctl is-active cron
-```
+grep -c 'DR_TEST_SCHEDULER_001' "$PROJECT_ROOT/storage/app/private/scheduler-dr-test.log"
+tail -n 10 "$PROJECT_ROOT/storage/app/private/scheduler-dr-test.log"
+~~~
 
-O backup Cron depende dos arquivos protegidos de credenciais e da chave SSH, fornecidos fora do Git. Consulte [backup-cron.md](backup-cron.md) para o monitoramento por `cron-backup.log`, comportamento de `flock` e a validação da janela agendada. A primeira execução iniciada pelo daemon às 02:00 ainda não foi validada no laboratório.
+**Resultado validado:** havia 7 linhas às 18:09 e 10 após três minutos. Foram registradas novas linhas às 2026-09-25 18:10:02, 18:11:01 e 18:12:02 com DR_TEST_SCHEDULER_001. Isso valida Cron -> artisan schedule:run -> Scheduler Laravel -> storage privado.
 
-## 17. Checklist de validação final
+## 14. Reprovisionar backup é uma etapa separada
 
-Conclua o teste somente quando todos os itens aplicáveis estiverem aprovados:
+Não copie diretamente o Cron de backup do primário para o host restaurado. O wrapper atual scripts/disaster-recovery/run-backup-cron.sh depende de usuário e caminhos do host primário lucas-cooperja, da partição /srv/teste-deploy-data, de arquivos externos de credencial, de chave SSH dedicada e de acesso ao destino externo.
 
-- [ ] O `RUN_ID` escolhido era promovido, tinha `manifest.sha256` e passou no SHA-256 remoto e local.
-- [ ] O repositório está no commit esperado e dependências PHP foram instaladas a partir de `composer.lock`.
-- [ ] O `.env`, `APP_KEY` e demais secrets foram fornecidos por canal protegido, sem entrar no Git.
-- [ ] MySQL está acessível e `teste_deploy` possui as tabelas e contagens esperadas para o restore point.
-- [ ] `DR_TEST_MONGO_001` existe em `teste_deploy_lab.recovery_tests`.
-- [ ] `DR_TEST_REDIS_001` existe após o Redis iniciar com AOF e volume restaurado.
-- [ ] `storage/app/private/DR_TEST_STORAGE_001.txt` existe e contém o marcador esperado.
-- [ ] `scheduler-dr-test.log` contém `DR_TEST_SCHEDULER_001` e novas linhas podem ser geradas pela tarefa.
-- [ ] Portainer responde em HTTPS e a autenticação com conta pré-existente no backup é possível.
-- [ ] Nginx aprova `nginx -t` e atende a aplicação com PHP-FPM.
-- [ ] `cron.service` está ativo, o Scheduler está no crontab correto e o wrapper de backup está executável.
-- [ ] Os logs de backup não apresentam `FAILED`, falha de componente ou erro de integridade crítico para a execução escolhida.
+No host primário, a execução automática do pipeline pelo daemon Cron foi validada em 2026-09-25. O teste das 02:00 não ocorreu porque host e Cron só ficaram ativos por volta de 13:22; isso não representou falha do pipeline. Em teste controlado para 16:05, o daemon iniciou o wrapper às 16:05:01, gerou o RUN_ID 2026-09-25_160501 e concluiu os cinco componentes, manifesto remoto, promoção, retenção e validação externa do manifesto com sucesso.
 
-## 18. Parada, rollback e tratamento de falhas
+Essa evidência não torna a configuração portável nem elimina o risco operacional: Cron tradicional não recupera automaticamente uma execução perdida enquanto o host ou o serviço estiver desligado. A futura reprovisão deve avaliar um systemd timer persistente ou estratégia equivalente.
 
-| Situação | Ação imediata | Como saber se é seguro continuar |
+Para habilitar backup no novo host, reprovisione e valide separadamente:
+
+1. mount, staging, logs, lock, ownership e permissões locais;
+2. arquivos externos de secrets, sem colocá-los no Git;
+3. chave SSH dedicada e acesso ao servidor externo;
+4. usuário local, HOME, caminho de projeto e parâmetros do novo host;
+5. Cron de backup adaptado e testado manualmente antes do agendamento.
+
+## 15. Checklist de sucesso validado
+
+- [x] Manifesto remoto e local aprovado.
+- [x] MySQL restaurado com estrutura e contagens esperadas.
+- [x] MongoDB recuperou DR_TEST_MONGO_001.
+- [x] Redis recuperou DR_TEST_REDIS_001 após restart.
+- [x] Storage privado recuperou DR_TEST_STORAGE_001.txt e o log do Scheduler.
+- [x] Portainer carregou portainer.db e autenticou conta existente no backup.
+- [x] Nginx passou em nginx -t e PHP-FPM alcançou o projeto após ACL e permissões.
+- [x] Laravel inicializou como www-data; bootstrap/cache ficou gravável.
+- [x] Vite foi reconstruído com Node 22; /login retornou 200.
+- [x] Autenticação funcional foi confirmada.
+- [x] Scheduler funcionou manualmente e automaticamente via Cron.
+
+## 16. Troubleshooting baseado no teste real
+
+| Sintoma | Causa confirmada | Ação segura |
 |---|---|---|
-| Manifesto ou checksum falha | Pare; não extraia nem importe o artefato. Baixe novamente ou escolha outro restore point promovido. | Todos os itens de `sha256sum -c manifest.sha256` passam. |
-| Banco ou volume de destino já contém dados | Pare; não sobrescreva. Faça cópia independente ou use nome/volume isolado para testar. | O destino está vazio ou sua substituição foi aprovada e registrada. |
-| Secret/configuração indisponível | Pare antes de iniciar a aplicação ou o serviço dependente. | A configuração foi entregue por canal protegido, com permissões adequadas. |
-| MongoDB, Redis ou Portainer não iniciam | Preserve logs e volume restaurado; não recrie o volume automaticamente. Compare imagem, Compose e permissões com o inventário. | O serviço inicia e o marcador ou estado funcional é validado. |
-| Nginx falha em `nginx -t` | Não faça reload. Revise os arquivos recuperados e o caminho do projeto. | O teste sintático é aprovado. |
-| Scheduler/Cron não escreve marcador | Execute `schedule:run` manualmente e revise usuário, PHP absoluto, `CACHE_STORE=file` e crontab. | A execução manual funciona antes de aguardar o Cron. |
+| MySQL ERROR 1045 | Senha de laravel@localhost divergente do secret externo. | Alinhar a conta local ao secret provisionado; não inventar senha. |
+| Nginx 404 | www-data não tinha travessia no home do usuário. | ACL mínima u:www-data:--x e teste de leitura de public/index.php. |
+| Laravel 500 / Target class [view] does not exist | Causa raiz: bootstrap/cache não gravável. | Corrigir ownership e modo de storage e bootstrap/cache; testar como www-data. |
+| Vite falha com node:util / styleText | Node 18 incompatível. | Usar Node 22 compatível, npm ci e npm run build. |
+| /login retorna 500 | public/build ausente. | Gerar assets e validar manifest. |
+| Mongo retorna zero para marcador | Consulta usou marker em vez de identificador. | Consultar { identificador: 'DR_TEST_MONGO_001' }. |
+| Portainer migra banco no startup | latest puxou versão diferente. | Preservar volume/logs e definir tag ou digest após conferir a origem. |
 
-Em qualquer rollback de teste, prefira remover apenas os bancos, volumes e containers explicitamente criados para o teste isolado. Não use comandos globais como `docker system prune`, não apague restore points externos e não substitua dados desconhecidos.
+Esses casos foram falhas de reprovisionamento/configuração no host limpo, não falhas do backup validado.
 
-## 19. Referências
+## 17. Gaps ainda abertos
+
+- Fixar Portainer em tag ou digest após verificar a versão do host primário.
+- Definir gestão de secrets de produção.
+- Tornar a automação de backup parametrizável ou reprovisionável em host com outro usuário e caminho.
+- Definir e validar escopo de uploads públicos em storage/app/public.
+- Manter cópia em destino fisicamente externo; a NVMe local é staging/capacidade, não proteção contra perda física.
+- Criar restore automatizado somente após aprovação do processo manual.
+
+## 18. Referências
 
 - [Arquitetura de backup e restore](backup-architecture.md)
 - [Desenho da automação](backup-automation-design.md)
 - [Orquestrador de backup](backup-orchestrator.md)
 - [Cron e monitoramento básico](backup-cron.md)
-- [Backup e restore MySQL](mysql-backup-restore.md)
-- [Backup e restore MongoDB](mongodb-backup-restore.md)
-- [Backup e restore Redis](redis-backup-restore.md)
-- [Backup e restore Laravel storage](laravel-storage-backup-restore.md)
-- [Backup e restore Portainer](portainer-backup-restore.md)
-- [Inventário Laravel](../inventario/laravel.md), [storage](../inventario/laravel-storage.md), [MySQL](../inventario/mysql.md), [MongoDB](../inventario/mongodb.md), [Redis](../inventario/redis.md), [Portainer](../inventario/portainer.md), [Nginx](../inventario/nginx.md), [Cron](../inventario/cron.md) e [secrets](../inventario/secrets.md)
-
-## 20. Limites do status atual
-
-Este runbook consolida evidências de restores isolados e fluxos de backup já validados no laboratório. Ele **não** comprova uma reconstrução completa em máquina limpa, não automatiza restore e não declara o disaster recovery concluído. A execução integral deste documento em uma segunda máquina é a próxima validação necessária.
+- [Inventário Laravel](../inventario/laravel.md), [MySQL](../inventario/mysql.md), [MongoDB](../inventario/mongodb.md), [Redis](../inventario/redis.md), [Portainer](../inventario/portainer.md), [Nginx](../inventario/nginx.md), [Cron](../inventario/cron.md) e [secrets](../inventario/secrets.md)

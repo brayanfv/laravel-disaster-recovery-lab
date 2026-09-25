@@ -4,7 +4,7 @@
 
 `scripts/disaster-recovery/backup-mongodb.sh` implementa o backup isolado do banco MongoDB `teste_deploy_lab`: gera um archive dentro do container, copia-o para staging local, calcula SHA-256, transfere para staging remoto `.incomplete`, valida a integridade remotamente e promove o diretório somente depois de sucesso.
 
-Ele não cria `manifest.sha256` global, não executa retenção, lock global, Cron, restore ou orquestração completa. Por usar um `RUN_ID` próprio, um diretório promovido por este script é restore point válido somente para o componente MongoDB; ele não representa backup completo do sistema nem deve ser combinado com um diretório final já promovido pelo MySQL.
+Quando executado isoladamente, ele não cria `manifest.sha256` global nem representa backup completo. Por usar um `RUN_ID` próprio, seu diretório promovido é válido somente para MongoDB; a execução geral `backup.sh` fornece manifesto, lock, retenção e promoção única.
 
 O fluxo manual continua documentado em [mongodb-backup-restore.md](mongodb-backup-restore.md). A implementação foi validada ponta a ponta em execução real isolada; isso não a transforma em backup completo do sistema.
 
@@ -109,6 +109,6 @@ O checksum remoto retornou `teste_deploy_lab.archive: SUCESSO`. O diretório `.i
 ## Limitações pendentes
 
 - A validação anterior que observou archive remoto em modo `644` e checksum em `600` foi superada pela execução `2026-09-22_163621`, que confirmou modo `600` para archive e checksum local/remoto.
-- Não há `manifest.sha256` global, retenção, lock global, Cron, monitoramento, orquestrador ou restore automatizado.
+- Manifesto, lock, retenção e orquestrador existem para a execução geral; a execução isolada não substitui esse fluxo.
 - A estratégia de secrets é provisória; o password file não substitui uma política definitiva de gestão/criptografia de secrets.
-- Backup e restore em máquina limpa continuam pendentes.
+- O restore manual foi validado em máquina limpa com `DR_TEST_MONGO_001`; restore automatizado permanece pendente.

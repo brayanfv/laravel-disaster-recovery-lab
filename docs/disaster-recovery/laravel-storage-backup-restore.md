@@ -98,17 +98,17 @@ Laravel storage original
 → validação DR_TEST_SCHEDULER_001
 ```
 
-O teste comprova backup de arquivos persistentes, transferência externa, verificação de integridade e recuperação isolada dos dois marcadores. Ele não valida restore no caminho definitivo da aplicação, recovery do host ou restore em máquina limpa.
+O teste comprova backup de arquivos persistentes, transferência externa, verificação de integridade e recuperação isolada dos dois marcadores. Posteriormente, o restore point `2026-09-24_173106` foi extraído no caminho definitivo em máquina limpa, recuperando `DR_TEST_STORAGE_001.txt` e `scheduler-dr-test.log`.
 
 ## Limitações e pendências
 
-- Não há script de backup ou restore.
-- A nomenclatura do artefato ainda não incorpora data/hora ou versão.
-- Não há retenção automatizada, monitoramento ou alertas.
+- O script `backup-laravel-storage.sh`, o orquestrador, o manifesto, lock e retenção já existem e foram validados; restore automatizado ainda não existe.
+- A nomenclatura por `RUN_ID` é aplicada pela execução geral.
+- Monitoramento ativo/alertas permanecem pendentes.
 - A estratégia de secrets e sua criptografia continuam pendentes.
-- O restore ainda não foi validado em máquina totalmente limpa.
-- Backup e restore de `portainer_data` continuam pendentes.
+- O restore manual no caminho definitivo e em máquina limpa foi validado; permissões e ownership continuam exigindo validação por host.
+- `portainer_data` também foi incluído e validado no restore limpo.
 
 ## Situação atual
 
-Este documento registra somente o fluxo manual Laravel storage já validado. Nenhum agendamento Cron de backup, script, alteração de Laravel ou segredo foi criado ou exposto nesta documentação.
+Este documento preserva o fluxo manual do Laravel storage como referência histórica. Scripts, orquestrador e wrapper de Cron existem em documentos próprios; nenhum secret foi exposto nesta documentação.

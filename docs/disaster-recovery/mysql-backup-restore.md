@@ -107,17 +107,17 @@ MySQL original
 → validação de dados
 ```
 
-O teste comprova o backup lógico e o restore manual isolado de `teste_deploy`, incluindo a integridade do artefato antes e depois da transferência externa. Não comprova restore da aplicação inteira nem recuperação em máquina limpa.
+O teste documentado comprova o backup lógico e o restore manual isolado de `teste_deploy`. Posteriormente, o restore point `2026-09-24_173106` foi recuperado em máquina limpa: a estrutura esperada foi restaurada, com `users_count = 2` e `sessions_count = 7108`.
 
 ## Limitações e pendências
 
-- Não há script de backup ou restore.
-- A nomenclatura do artefato ainda não incorpora data/hora ou versão.
-- Não há retenção automatizada, monitoramento ou alertas.
+- O script `backup-mysql.sh`, o orquestrador, o manifesto, lock e retenção já existem e foram validados; restore automatizado ainda não existe.
+- A nomenclatura por `RUN_ID` é aplicada pela execução geral.
+- Monitoramento ativo/alertas e gestão formal de secrets permanecem pendentes.
 - A estratégia de secrets e sua criptografia continuam pendentes.
-- O restore ainda não foi validado em máquina totalmente limpa.
-- Backup e restore dos demais componentes persistentes, como MongoDB, Redis, Laravel storage e `portainer_data`, continuam pendentes.
+- O restore manual em máquina limpa foi validado; o procedimento ainda depende de ações manuais e de secrets externos.
+- Os demais componentes persistentes também foram incluídos e validados no restore limpo.
 
 ## Situação atual
 
-Este documento registra somente o fluxo manual de MySQL já validado. Nenhum agendamento Cron de backup, script, alteração de privilégio global, senha ou secret foi criado ou exposto nesta documentação.
+Este documento preserva o fluxo manual de MySQL como referência histórica. Scripts, orquestrador e wrapper de Cron existem em documentos próprios; nenhum secret ou privilégio global foi exposto nesta documentação.

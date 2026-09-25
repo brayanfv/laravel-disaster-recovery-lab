@@ -4,7 +4,7 @@
 
 `scripts/disaster-recovery/run-backup-cron.sh` prepara o ambiente reduzido do Cron e inicia o orquestrador `scripts/disaster-recovery/backup.sh`. O wrapper não duplica lógica de backup: o orquestrador continua responsável pelos cinco componentes, pelo `RUN_ID`, pelo lock, pelo manifesto, pela promoção e pela retenção.
 
-O wrapper foi validado manualmente no laboratório. A entrada diária de Cron foi instalada para o usuário `lucas-cooperja`, e o serviço `cron` está ativo (`active (running)`). A primeira execução iniciada pelo daemon no horário das 02:00 ainda não foi validada.
+O wrapper foi validado manualmente e pelo daemon Cron no laboratório. A entrada diária de Cron está instalada para o usuário `lucas-cooperja`, e o serviço `cron` está ativo (`active (running)`).
 
 ## Executor e ambiente
 
@@ -95,24 +95,22 @@ stat -c '%n | %U:%G | %a | %F' \
   /home/lucas-cooperja/.ssh/id_ed25519_backup_lab
 ```
 
-## Validação da primeira execução agendada
+## Validação da execução agendada pelo daemon
 
-A execução iniciada pelo daemon Cron às 02:00 ainda é a validação pendente deste incremento. Após a próxima janela agendada, usar:
+O teste original das 02:00 de 2026-09-25 não ocorreu porque o host e o serviço Cron só estavam ativos a partir de aproximadamente 13:22. Isso não foi falha do wrapper, do orquestrador ou dos componentes.
 
-```bash
-journalctl -u cron \
-  --since "2026-09-25 01:55:00" \
-  --until "2026-09-25 02:10:00" \
-  --no-pager
+Para validar o daemon de modo controlado, o horário foi temporariamente alterado para 16:05. O Cron disparou automaticamente às 16:05:01 e executou:
 
-grep -nE 'Wrapper de Cron|Backup geral (SUCCESS|FAILED)|Lock global|Retenção remota' \
-  /srv/teste-deploy-data/backup-logs/cron-backup.log | tail -30
+```text
+/home/lucas-cooperja/Documentos/laravel-deploy-test/teste-deploy/scripts/disaster-recovery/run-backup-cron.sh
 ```
 
-O primeiro comando confirma o disparo pelo serviço; o segundo confirma o início do wrapper e o resultado do orquestrador. A ocorrência do `RUN_ID` criado nessa janela, seguida de `Backup geral SUCCESS` e `Wrapper de Cron concluído; status=SUCCESS`, validará a automação agendada.
+O `RUN_ID` gerado foi `2026-09-25_160501`. MySQL, MongoDB, Redis, Laravel storage e Portainer concluíram com `SUCCESS`; o manifesto global foi criado e validado remotamente; o restore point foi promovido para `/srv/backups/teste-deploy/2026-09-25_160501`; e a retenção terminou com `SUCCESS`.
+
+O log registrou `Backup geral SUCCESS` e `Wrapper de Cron concluído; status=SUCCESS`. No destino externo, `sha256sum -c manifest.sha256` retornou sucesso para os cinco artefatos. Portanto, a **execução automática do backup via daemon Cron está validada**.
 
 ## Limitações e pendências
 
-- A execução real disparada pelo daemon Cron às 02:00 ainda não foi validada.
 - Não há alertas externos, rotação automática de logs, monitoramento ativo ou restore automatizado.
-- A estratégia definitiva de secrets e a validação em máquina limpa continuam pendentes.
+- A estratégia definitiva de secrets permanece pendente. A recuperação manual em máquina limpa foi validada, mas o pipeline de backup desse novo host ainda precisaria ser reprovisionado antes de ativar seu Cron de backup.
+- Cron tradicional não executa retroativamente uma tarefa perdida enquanto o host ou o serviço estiver desligado. Avaliar futuramente `systemd timer` persistente ou mecanismo equivalente para a política de recuperação de execuções perdidas.

@@ -4,7 +4,7 @@
 
 `scripts/disaster-recovery/backup-portainer.sh` implementa o backup isolado do volume persistente `portainer_data`. Ele interrompe o container `portainer`, arquiva o volume enquanto o serviço está parado, reinicia o container e somente então calcula checksum e transfere o resultado ao destino externo.
 
-O script não cria `manifest.sha256` global, não executa retenção, lock global, Cron, restore ou orquestração completa. Por usar um `RUN_ID` próprio, um diretório promovido por este script é restore point válido apenas para o componente Portainer; ele não representa backup completo do sistema nem deve ser combinado com diretórios finais já promovidos por outros scripts de componente.
+Quando executado isoladamente, o script não cria `manifest.sha256` global nem representa backup completo. Por usar um `RUN_ID` próprio, seu diretório promovido é válido apenas para Portainer; a execução geral `backup.sh` fornece manifesto, lock, retenção e promoção única.
 
 O fluxo manual continua documentado em [portainer-backup-restore.md](portainer-backup-restore.md). A implementação automatizada isolada foi validada ponta a ponta no laboratório; ela ainda não representa um backup completo de todos os componentes do sistema.
 
@@ -121,11 +121,11 @@ Os nomes registram apenas a estrutura; nenhum conteúdo sensível foi incluído 
 
 O archive promovido foi extraído em `/tmp/portainer-restore-test`, sem sobrescrever o volume original. `portainer.db` foi recuperado. Os arquivos sensíveis observados — `portainer.db`, `portainer.key`, `certs/key.pem` e `chisel/private-key.pem` — permaneceram com modo restritivo `600` após a extração.
 
-Essa validação confirma a recuperação do conteúdo do volume em diretório isolado. A validação de restore em uma máquina limpa e a automação de restore continuam pendentes.
+Essa validação confirmou inicialmente a recuperação isolada. Posteriormente, o volume foi restaurado em máquina limpa, `portainer.db` foi carregado e o login com usuário existente no backup funcionou. Restore automatizado continua pendente.
 
 ## Limitações pendentes
 
 - A execução real validou o caminho de sucesso. A falha de criação do archive no `RUN_ID` `2026-09-24_133313` também validou o `trap` de cleanup e o reinício obrigatório do Portainer; outros tipos de falha ainda não foram injetados individualmente.
-- Não há `manifest.sha256` global, retenção, lock global, Cron, monitoramento, orquestrador ou restore automatizado.
+- Manifesto, lock, retenção e orquestrador existem para a execução geral; a execução isolada não substitui esse fluxo.
 - A tag `portainer/portainer-ce:latest` continua mutável e não é adequada para reconstrução final reproduzível.
-- Backup e restore em máquina limpa continuam pendentes.
+- O restore manual em máquina limpa foi validado; a versão/digest de origem e o restore automatizado permanecem pendentes.

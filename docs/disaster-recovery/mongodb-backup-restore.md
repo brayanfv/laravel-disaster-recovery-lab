@@ -102,17 +102,17 @@ MongoDB original
 → validação DR_TEST_MONGO_001
 ```
 
-O teste comprova backup lógico, transferência externa, verificação de integridade e restore isolado do marcador MongoDB. Ele não valida recovery do host, restore da aplicação completa, backup bruto de volume ou restore em máquina limpa.
+O teste comprova backup lógico, transferência externa, verificação de integridade e restore isolado do marcador MongoDB. Posteriormente, o restore point `2026-09-24_173106` foi recuperado em máquina limpa: `mongorestore --drop` restaurou um documento, sem falhas, e `DR_TEST_MONGO_001` foi validado pelo campo `identificador`.
 
 ## Limitações e pendências
 
-- Não há script de backup ou restore.
-- A nomenclatura do archive ainda não incorpora data/hora ou versão.
-- Não há retenção automatizada, monitoramento ou alertas.
+- O script `backup-mongodb.sh`, o orquestrador, o manifesto, lock e retenção já existem e foram validados; restore automatizado ainda não existe.
+- A nomenclatura por `RUN_ID` é aplicada pela execução geral.
+- Monitoramento ativo/alertas e gestão formal de secrets permanecem pendentes.
 - A estratégia de secrets e sua criptografia continuam pendentes.
-- O restore ainda não foi validado em máquina totalmente limpa.
-- Backup e restore de Redis, Laravel storage e `portainer_data` continuam pendentes.
+- O restore manual em máquina limpa foi validado; o procedimento ainda depende de secret externo.
+- Redis, Laravel storage e `portainer_data` também foram incluídos e validados no restore limpo.
 
 ## Situação atual
 
-Este documento registra somente o fluxo manual MongoDB já validado. Nenhum agendamento Cron de backup, script, alteração de infraestrutura ou senha foi criado ou exposto nesta documentação.
+Este documento preserva o fluxo manual MongoDB como referência histórica. Scripts, orquestrador e wrapper de Cron existem em documentos próprios; nenhuma senha foi exposta nesta documentação.

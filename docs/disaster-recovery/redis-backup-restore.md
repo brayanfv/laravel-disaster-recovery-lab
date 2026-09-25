@@ -104,18 +104,18 @@ Redis original
 → recuperação de DR_TEST_REDIS_001
 ```
 
-O teste comprova backup consistente do volume persistente no laboratório, transferência externa, verificação de integridade e restore isolado. Ele não valida recovery do host, restore da aplicação completa, automação ou restore em máquina limpa.
+O teste comprova backup consistente do volume persistente no laboratório, transferência externa, verificação de integridade e restore isolado. Posteriormente, o restore point `2026-09-24_173106` foi recuperado em máquina limpa e `DR_TEST_REDIS_001` voltou a retornar o valor esperado após o restart.
 
 ## Limitações e pendências
 
-- Não há script de backup ou restore.
-- A nomenclatura do artefato ainda não incorpora data/hora ou versão.
-- Não há retenção automatizada, monitoramento ou alertas.
+- O script `backup-redis.sh`, o orquestrador, o manifesto, lock e retenção já existem e foram validados; restore automatizado ainda não existe.
+- A nomenclatura por `RUN_ID` é aplicada pela execução geral.
+- Monitoramento ativo/alertas permanecem pendentes.
 - A estratégia de secrets e sua criptografia continuam pendentes.
-- O restore ainda não foi validado em máquina totalmente limpa.
-- Backup e restore de Laravel storage e `portainer_data` continuam pendentes.
+- O restore manual em máquina limpa foi validado.
+- Laravel storage e `portainer_data` também foram incluídos e validados no restore limpo.
 - A necessidade de backup Redis em produção ainda depende do papel real do serviço.
 
 ## Situação atual
 
-Este documento registra somente o fluxo manual Redis já validado no laboratório. Nenhum agendamento Cron de backup, script, alteração de infraestrutura ou segredo foi criado ou exposto nesta documentação.
+Este documento preserva o fluxo manual Redis como referência histórica. Scripts, orquestrador e wrapper de Cron existem em documentos próprios; nenhum segredo foi exposto nesta documentação.

@@ -4,7 +4,7 @@
 
 `scripts/disaster-recovery/backup-redis.sh` implementa o backup isolado do volume persistente `redis_data`. Ele força a persistência do Redis, interrompe o container de forma controlada, arquiva o volume enquanto o Redis está parado, reinicia o serviço e somente então calcula checksum e transfere o resultado ao destino externo.
 
-O script não cria `manifest.sha256` global, não executa retenção, lock global, Cron, restore ou orquestração completa. Por usar um `RUN_ID` próprio, um diretório promovido por este script é restore point válido apenas para o componente Redis; ele não representa backup completo do sistema nem deve ser combinado com diretórios finais já promovidos por outros scripts de componente.
+Quando executado isoladamente, o script não cria `manifest.sha256` global nem representa backup completo. Por usar um `RUN_ID` próprio, seu diretório promovido é válido apenas para Redis; a execução geral `backup.sh` fornece manifesto, lock, retenção e promoção única.
 
 O fluxo manual continua documentado em [redis-backup-restore.md](redis-backup-restore.md). A implementação foi validada ponta a ponta em execução real isolada; isso não a transforma em backup completo do sistema.
 
@@ -114,6 +114,6 @@ A recuperação de `DR_TEST_REDIS_001` em restore isolado já havia sido validad
 
 ## Limitações pendentes
 
-- Não há `manifest.sha256` global, retenção, lock global, Cron, monitoramento, orquestrador ou restore automatizado.
+- Manifesto, lock, retenção e orquestrador existem para a execução geral; a execução isolada não substitui esse fluxo.
 - Redis é tratado como estado persistente neste laboratório; em produção a necessidade de backup depende do papel real do serviço.
-- Backup e restore em máquina limpa continuam pendentes.
+- O restore manual foi validado em máquina limpa com `DR_TEST_REDIS_001`; restore automatizado permanece pendente.

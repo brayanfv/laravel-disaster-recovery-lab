@@ -4,7 +4,7 @@
 
 `scripts/disaster-recovery/backup-laravel-storage.sh` implementa o backup isolado do conteúdo persistente de `storage/app/private/` do projeto Laravel. Ele cria archive local, checksum SHA-256, transfere ambos por SSH/SCP para staging remoto `.incomplete`, valida a integridade remotamente e promove o diretório somente após sucesso.
 
-O script não cria `manifest.sha256` global, não executa retenção, lock global, Cron, restore ou orquestração completa. Por usar um `RUN_ID` próprio, um diretório promovido por este script é restore point válido apenas para o componente Laravel storage; ele não representa backup completo do sistema nem deve ser combinado com diretórios finais já promovidos por outros scripts de componente.
+Quando executado isoladamente, o script não cria `manifest.sha256` global nem representa backup completo. Por usar um `RUN_ID` próprio, seu diretório promovido é válido apenas para Laravel storage; a execução geral `backup.sh` fornece manifesto, lock, retenção e promoção única.
 
 O restore manual continua documentado em [laravel-storage-backup-restore.md](laravel-storage-backup-restore.md). A implementação foi validada ponta a ponta em execução real isolada; isso não a transforma em backup completo do sistema.
 
@@ -110,6 +110,6 @@ As permissões recuperadas são as que estavam armazenadas no archive. Na extra�
 
 ## Limitações pendentes
 
-- Não há `manifest.sha256` global, retenção, lock global, Cron, monitoramento, orquestrador ou restore automatizado.
+- Manifesto, lock, retenção e orquestrador existem para a execução geral; a execução isolada não substitui esse fluxo.
 - A consistência é por filesystem e não há snapshot; arquivos modificados durante a criação do archive exigem avaliação de risco conforme a produção.
-- Backup e restore em máquina limpa continuam pendentes.
+- O restore no caminho definitivo foi validado em máquina limpa com `DR_TEST_STORAGE_001.txt` e `scheduler-dr-test.log`; ownership e permissões devem continuar sendo revisados em cada host alvo.

@@ -95,7 +95,7 @@ Foram validados no laboratório:
 - recuperação funcional do estado configurado;
 - autenticação com usuário existente antes do backup.
 
-O teste não valida restore em máquina limpa, automação ou uma estratégia de retenção.
+O teste manual originalmente descrito não validava esses pontos. Posteriormente, o volume foi restaurado em máquina limpa a partir do restore point `2026-09-24_173106`: `portainer.db` foi carregado e a autenticação com usuário existente no backup funcionou. O backup automatizado, o orquestrador, o manifesto, o lock e a retenção também foram implementados e validados separadamente.
 
 ## Gap técnico: imagem `latest`
 
@@ -103,11 +103,11 @@ O container original usa `portainer/portainer-ce:latest`. Para um disaster recov
 
 ## Limitações e pendências
 
-- Não há scripts ou automação.
-- A nomenclatura do artefato ainda não incorpora data/hora ou versão.
-- Não há retenção automatizada, monitoramento ou alertas.
+- Existem script de componente, orquestrador, manifesto, lock e retenção; restore automatizado ainda não existe.
+- A nomenclatura por `RUN_ID` é aplicada pela execução geral.
+- Monitoramento ativo/alertas permanecem pendentes.
 - A estratégia de secrets e sua criptografia continuam pendentes.
-- O restore ainda não foi validado em máquina totalmente limpa.
+- O restore manual em máquina limpa foi validado; a imagem `latest` introduziu migração de banco e reforça a necessidade de pin de versão/digest.
 - Backup e restore de uploads públicos, caso existam, permanecem pendentes.
 - A estratégia definitiva de versão/digest do Portainer permanece pendente.
 

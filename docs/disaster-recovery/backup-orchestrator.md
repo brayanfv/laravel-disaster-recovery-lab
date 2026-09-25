@@ -51,7 +51,7 @@ portainer/portainer_data.tar.gz
 
 Depois da validação remota do manifesto, ocorreu uma única promoção para `/srv/backups/teste-deploy/2026-09-24_142925`. O diretório `.incomplete/2026-09-24_142925` não existia após o `mv` bem-sucedido. Redis e Portainer voltaram ao estado `Up`, e o marcador `DR_TEST_REDIS_001` permaneceu válido.
 
-Essa validação confirma o fluxo completo de backup orquestrado, não um restore automatizado ou a recuperação em máquina limpa.
+Essa validação confirma o fluxo completo de backup orquestrado. O restore automatizado continua fora de escopo, mas a recuperação manual em máquina limpa foi validada posteriormente com o restore point `2026-09-24_173106`.
 
 ## Estrutura da execução
 
@@ -186,6 +186,6 @@ Os valores e os caminhos reais das credenciais não devem ser registrados no rep
 
 ## Pendências
 
-- Definir Cron de backup em incremento posterior; lock e retenção já foram validados no laboratório.
+- O wrapper de Cron e a entrada diária de backup já existem e foram validados manualmente; a primeira execução diária pelo daemon continua pendente.
 - Definir monitoramento, estratégia definitiva de secrets e restore automatizado separadamente.
-- Validar a recuperação completa em máquina limpa.
+- Formalizar o reprovisionamento do pipeline de backup em host com usuário, caminhos e secrets diferentes.
